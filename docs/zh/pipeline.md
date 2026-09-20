@@ -137,4 +137,6 @@ Agent 判定、失败原因、目标哈希和发布状态；章节 JSON 不增�
 
 新增模型操作时，在 `OperationSpec` 中注册 ID、默认档位或继承操作、输出提示、工作流开关和协议版本，再由领域服务调用 `complete(..., operation="domain.operation")`。校验、CLI 预览和推理指纹共用该注册表。新增提供商时，在 `llm/providers/` 实现选项、请求构建、用量归一化和 `ProviderAdapter`，再注册 `ProviderSpec`。SDK 延迟初始化并关闭内置重试；请求语义变化时更新相应协议版本，并用离线测试覆盖请求、用量和续跑。注册表在启动后不可修改。
 
+共享 transport 将 `max_retries` 解释为额外尝试次数。本地 full-jitter 指数退避的上限为 30 秒；有效的服务端 `Retry-After` 保持为不受该上限截断的最小等待下限，并在此下限之后增加少量只向后的 jitter，避免并发请求同步恢复。所有等待仍通过本次 invocation 的协作式取消与 deadline 机制执行，不在提供商或 stage 内直接 sleep。
+
 Review 比较可达操作的实际推理身份，模型、端点或选项变化会启动新 Review，改动无关路由或并发则保留缓存。Autofix 发布索引优先恢复；多轮取证不跨模型复用轨迹。全书与 Review 账本先写 `usage-pending.json` 再更新各自 `usage.json`，续跑能幂等补完中断提交。

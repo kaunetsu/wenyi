@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import math
+import random
 import ssl
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -166,12 +168,21 @@ def is_resumable_provider_interrupt(error: Any) -> bool:
     return "insufficient balance" in message or "insufficient_quota" in message
 
 
-def _retry_after_seconds(error: Any) -> float | None:
-    """Parse Retry-After/retry-after-ms and cap the wait at a safe upper bound."""
+def _normalized_server_delay(value: float) -> float | None:
+    """Normalize a finite server delay without applying the local backoff cap."""
+    if not math.isfinite(value):
+        return None
+    return max(0.0, value)
+
+
+def _retry_after_seconds(error: Any, *, now: datetime | None = None) -> float | None:
+    """Parse Retry-After/retry-after-ms as a minimum server-requested delay."""
     milliseconds = _header(error, "retry-after-ms")
     if milliseconds:
         try:
-            return min(_MAX_WAIT_SECONDS, max(0.0, float(milliseconds) / 1000))
+            parsed = _normalized_server_delay(float(milliseconds) / 1000)
+            if parsed is not None:
+                return parsed
         except ValueError:
             pass
 
@@ -185,19 +196,59 @@ def _retry_after_seconds(error: Any) -> float | None:
             target = parsedate_to_datetime(value)
             if target.tzinfo is None:
                 target = target.replace(tzinfo=timezone.utc)
-            seconds = (target - datetime.now(timezone.utc)).total_seconds()
+            current = now or datetime.now(timezone.utc)
+            seconds = (target - current).total_seconds()
         except (TypeError, ValueError, OverflowError):
             return None
-    return min(_MAX_WAIT_SECONDS, max(0.0, seconds))
+    return _normalized_server_delay(seconds)
+
+
+@dataclass(frozen=True)
+class _RetryWaitDetails:
+    server_retry_after_seconds: float | None
+    local_wait_seconds: float
+    jitter_seconds: float
+    applied_wait_seconds: float
+    wait_source: str
+
+
+def _retry_wait_details(retry_state: RetryCallState) -> _RetryWaitDetails:
+    """Calculate one wait once so Tenacity, events and logs share identical random values."""
+    cached_attempt = getattr(retry_state, "_wenyi_retry_wait_attempt", None)
+    cached = getattr(retry_state, "_wenyi_retry_wait_details", None)
+    if cached_attempt == retry_state.attempt_number and isinstance(cached, _RetryWaitDetails):
+        return cached
+
+    error = retry_state.outcome.exception() if retry_state.outcome else None
+    local_wait = float(_FALLBACK_WAIT(retry_state))
+    server_wait = _retry_after_seconds(error)
+    if server_wait is None:
+        details = _RetryWaitDetails(
+            server_retry_after_seconds=None,
+            local_wait_seconds=local_wait,
+            jitter_seconds=0.0,
+            applied_wait_seconds=local_wait,
+            wait_source="exponential_jitter",
+        )
+    else:
+        base_wait = max(server_wait, local_wait)
+        jitter_limit = min(5.0, base_wait * 0.1)
+        jitter = random.uniform(0.0, jitter_limit) if jitter_limit > 0 else 0.0
+        details = _RetryWaitDetails(
+            server_retry_after_seconds=server_wait,
+            local_wait_seconds=local_wait,
+            jitter_seconds=jitter,
+            applied_wait_seconds=base_wait + jitter,
+            wait_source="server",
+        )
+    setattr(retry_state, "_wenyi_retry_wait_details", details)
+    setattr(retry_state, "_wenyi_retry_wait_attempt", retry_state.attempt_number)
+    return details
 
 
 def wait_for_provider_retry(retry_state: RetryCallState) -> float:
-    """Prefer server retry headers; otherwise use exponential backoff with jitter."""
-    error = retry_state.outcome.exception() if retry_state.outcome else None
-    server_wait = _retry_after_seconds(error)
-    if server_wait is not None:
-        return server_wait
-    return float(_FALLBACK_WAIT(retry_state))
+    """Apply local full jitter, plus a server floor and positive jitter when provided."""
+    return _retry_wait_details(retry_state).applied_wait_seconds
 
 
 def _request_id(error: Any) -> str | None:
@@ -234,6 +285,7 @@ class RetryReporter:
         """
         error = retry_state.outcome.exception() if retry_state.outcome else None
         wait_seconds = float(retry_state.next_action.sleep if retry_state.next_action else 0.0)
+        wait_details = _retry_wait_details(retry_state)
         fields = self._error_fields(error)
         payload = {
             "provider": self.provider,
@@ -243,21 +295,29 @@ class RetryReporter:
             "next_attempt": retry_state.attempt_number + 1,
             "max_attempts": self.max_attempts,
             "wait_seconds": round(wait_seconds, 3),
-            "wait_source": (
-                "server" if _retry_after_seconds(error) is not None else "exponential_jitter"
+            "server_retry_after_seconds": (
+                round(wait_details.server_retry_after_seconds, 3)
+                if wait_details.server_retry_after_seconds is not None
+                else None
             ),
+            "local_wait_seconds": round(wait_details.local_wait_seconds, 3),
+            "jitter_seconds": round(wait_details.jitter_seconds, 3),
+            "applied_wait_seconds": round(wait_seconds, 3),
+            "wait_source": wait_details.wait_source,
             **fields,
         }
         self.emit("llm_retry_wait", **payload)
         _LOGGER.warning(
             "LLM request retrying: provider=%s stage=%s tier=%s attempt=%s/%s "
-            "wait=%.3fs reason=%s error=%s request_id=%s",
+            "wait=%.3fs wait_source=%s status_code=%s reason=%s error=%s request_id=%s",
             self.provider,
             self.stage or "unknown",
             self.tier,
             retry_state.attempt_number,
             self.max_attempts,
             wait_seconds,
+            wait_details.wait_source,
+            fields["status_code"] if fields["status_code"] is not None else "unknown",
             fields["reason"],
             fields["error_type"],
             fields["request_id"] or "unknown",

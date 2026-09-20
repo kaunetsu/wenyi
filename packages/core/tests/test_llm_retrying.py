@@ -5,20 +5,27 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import httpx
 import pytest
 from openai import APIConnectionError, APITimeoutError
 from wenyi_core.config import Config, LLMConfig
+from wenyi_core.llm import retrying
+from wenyi_core.llm.limits import RequestStopped
 from wenyi_core.llm.providers.deepseek import DeepSeekClient
 from wenyi_core.llm.retrying import (
     EmptyResponseError,
+    RetryReporter,
     is_resumable_provider_interrupt,
     is_retryable_provider_error,
+    provider_retry,
     retry_reason,
+    wait_for_provider_retry,
 )
 from wenyi_core.llm.router import RoutedLLMClient
 from wenyi_core.pipeline.orchestrator import Orchestrator
@@ -84,7 +91,15 @@ def _config(*, max_retries: int) -> LLMConfig:
     )
 
 
-@pytest.mark.parametrize("status", [408, 409, 429, 500, 502, 599])
+def _retry_state(error: BaseException, *, attempt: int = 1) -> SimpleNamespace:
+    return SimpleNamespace(
+        outcome=SimpleNamespace(exception=lambda: error),
+        attempt_number=attempt,
+        next_action=None,
+    )
+
+
+@pytest.mark.parametrize("status", [408, 409, 429, 500, 502, 524, 599])
 def test_transient_http_statuses_are_retryable(status: int):
     assert is_retryable_provider_error(_HttpError(status))
     assert retry_reason(_HttpError(status)) == f"http_{status}"
@@ -129,6 +144,269 @@ def test_empty_model_response_is_retryable():
     assert retry_reason(error) == "empty_response"
 
 
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        ({"retry-after": "60"}, 60.0),
+        ({"retry-after-ms": "60000"}, 60.0),
+        ({"retry-after-ms": "1000", "retry-after": "60"}, 1.0),
+        ({"retry-after-ms": "invalid", "retry-after": "60"}, 60.0),
+        ({"retry-after": "-5"}, 0.0),
+    ],
+)
+def test_server_retry_after_is_not_capped_by_local_backoff(headers, expected):
+    assert retrying._retry_after_seconds(_HttpError(524, headers=headers)) == expected
+
+
+def test_local_exponential_backoff_cap_remains_30_seconds():
+    assert retrying._FALLBACK_WAIT.max == 30.0
+
+
+def test_http_date_retry_after_is_not_capped_by_local_backoff():
+    now = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
+    retry_at = now + timedelta(seconds=90)
+    error = _HttpError(524, headers={"retry-after": format_datetime(retry_at, usegmt=True)})
+
+    assert retrying._retry_after_seconds(error, now=now) == 90.0
+
+
+def test_past_http_date_retry_after_is_normalized_to_zero():
+    now = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
+    retry_at = now - timedelta(seconds=90)
+    error = _HttpError(524, headers={"retry-after": format_datetime(retry_at, usegmt=True)})
+
+    assert retrying._retry_after_seconds(error, now=now) == 0.0
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+def test_non_finite_retry_after_falls_back_to_local_wait(value: str):
+    state = _retry_state(_HttpError(524, headers={"retry-after": value}))
+    with patch.object(retrying, "_FALLBACK_WAIT", return_value=2.5):
+        wait = wait_for_provider_retry(state)
+
+    assert wait == 2.5
+    assert state._wenyi_retry_wait_details.server_retry_after_seconds is None
+
+
+def test_retry_after_header_lookup_uses_httpx_case_insensitivity():
+    error = _HttpError(524)
+    error.response.headers = httpx.Headers({"Retry-After": "60"})
+
+    assert retrying._retry_after_seconds(error) == 60.0
+
+
+def test_malformed_retry_after_falls_back_to_local_exponential_wait():
+    state = _retry_state(_HttpError(524, headers={"retry-after": "not-a-delay"}))
+    with patch.object(retrying, "_FALLBACK_WAIT", return_value=7.25) as fallback:
+        wait = wait_for_provider_retry(state)
+
+    assert wait == 7.25
+    assert state._wenyi_retry_wait_details.server_retry_after_seconds is None
+    assert state._wenyi_retry_wait_details.wait_source == "exponential_jitter"
+    fallback.assert_called_once_with(state)
+
+
+def test_missing_retry_after_preserves_local_exponential_full_jitter():
+    state = _retry_state(_HttpError(524))
+    with patch.object(retrying, "_FALLBACK_WAIT", return_value=3.5) as fallback:
+        wait = wait_for_provider_retry(state)
+
+    assert wait == 3.5
+    assert state._wenyi_retry_wait_details.local_wait_seconds == 3.5
+    assert state._wenyi_retry_wait_details.jitter_seconds == 0.0
+    assert state._wenyi_retry_wait_details.wait_source == "exponential_jitter"
+    fallback.assert_called_once_with(state)
+
+
+@pytest.mark.parametrize(("jitter", "expected"), [(0.0, 30.0), (3.0, 33.0)])
+def test_server_wait_uses_maximum_floor_and_positive_only_jitter(jitter: float, expected: float):
+    state = _retry_state(_HttpError(524, headers={"retry-after": "10"}))
+    with (
+        patch.object(retrying, "_FALLBACK_WAIT", return_value=30.0),
+        patch.object(retrying.random, "uniform", return_value=jitter) as uniform,
+    ):
+        wait = wait_for_provider_retry(state)
+
+    details = state._wenyi_retry_wait_details
+    assert wait == expected
+    assert wait >= max(10.0, 30.0)
+    assert details.server_retry_after_seconds == 10.0
+    assert details.local_wait_seconds == 30.0
+    assert details.jitter_seconds == jitter
+    assert details.jitter_seconds >= 0
+    uniform.assert_called_once_with(0.0, 3.0)
+
+
+def test_wait_decision_cache_is_scoped_to_each_tenacity_attempt():
+    outcomes: list[Any] = [
+        _HttpError(524, headers={"retry-after": "10"}),
+        _HttpError(524, headers={"retry-after": "20"}),
+        "ok",
+    ]
+    sleeps: list[float] = []
+    local_attempts: list[int] = []
+    local_values = iter([1.0, 4.0])
+    events: list[dict[str, Any]] = []
+    reporter = RetryReporter(
+        "test",
+        "direct",
+        "translation.body",
+        3,
+        lambda event, **data: events.append({"event": event, **data}),
+    )
+
+    def request() -> str:
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    def local_wait(state: Any) -> float:
+        local_attempts.append(state.attempt_number)
+        return next(local_values)
+
+    wrapped = provider_retry(2, reporter, sleep=sleeps.append)(request)
+    with (
+        patch.object(retrying, "_FALLBACK_WAIT", side_effect=local_wait) as fallback,
+        patch.object(retrying.random, "uniform", side_effect=[1.0, 2.0]) as uniform,
+    ):
+        assert wrapped() == "ok"
+
+    assert sleeps == [11.0, 22.0]
+    assert local_attempts == [1, 2]
+    assert fallback.call_count == 2
+    assert uniform.call_args_list == [call(0.0, 1.0), call(0.0, 2.0)]
+    assert [
+        {
+            "failed_attempt": event["failed_attempt"],
+            "server": event["server_retry_after_seconds"],
+            "local": event["local_wait_seconds"],
+            "jitter": event["jitter_seconds"],
+            "applied": event["applied_wait_seconds"],
+        }
+        for event in events
+    ] == [
+        {"failed_attempt": 1, "server": 10.0, "local": 1.0, "jitter": 1.0, "applied": 11.0},
+        {"failed_attempt": 2, "server": 20.0, "local": 4.0, "jitter": 2.0, "applied": 22.0},
+    ]
+
+
+def test_local_exponential_wait_is_recomputed_for_each_tenacity_attempt():
+    outcomes: list[Any] = [_HttpError(524), _HttpError(524), "ok"]
+    sleeps: list[float] = []
+    events: list[dict[str, Any]] = []
+    reporter = RetryReporter(
+        "test",
+        "direct",
+        "translation.body",
+        3,
+        lambda event, **data: events.append({"event": event, **data}),
+    )
+
+    def request() -> str:
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    wrapped = provider_retry(2, reporter, sleep=sleeps.append)(request)
+    with patch("tenacity.wait.random.uniform", side_effect=[0.5, 1.5]) as local_rng:
+        assert wrapped() == "ok"
+
+    assert sleeps == [0.5, 1.5]
+    assert local_rng.call_args_list == [call(0.0, 1.0), call(0.0, 2.0)]
+    assert [event["local_wait_seconds"] for event in events] == [0.5, 1.5]
+    assert [event["server_retry_after_seconds"] for event in events] == [None, None]
+    assert [event["jitter_seconds"] for event in events] == [0.0, 0.0]
+    assert [event["applied_wait_seconds"] for event in events] == [0.5, 1.5]
+
+
+def test_retry_warning_and_event_include_wait_breakdown(caplog):
+    state = _retry_state(_HttpError(524, headers={"retry-after": "60"}))
+    events: list[dict[str, Any]] = []
+    reporter = RetryReporter(
+        provider="openai-compatible",
+        tier="direct",
+        stage="translation.body",
+        max_attempts=5,
+        emit=lambda event, **data: events.append({"event": event, **data}),
+    )
+    with (
+        patch.object(retrying, "_FALLBACK_WAIT", return_value=2.0),
+        patch.object(retrying.random, "uniform", return_value=3.0),
+    ):
+        wait = wait_for_provider_retry(state)
+        state.next_action = SimpleNamespace(sleep=wait)
+        with caplog.at_level("WARNING", logger="wenyi_core.llm.retrying"):
+            reporter.before_sleep(state)
+
+    assert wait == 63.0
+    assert events == [
+        {
+            "event": "llm_retry_wait",
+            "provider": "openai-compatible",
+            "tier": "direct",
+            "stage": "translation.body",
+            "failed_attempt": 1,
+            "next_attempt": 2,
+            "max_attempts": 5,
+            "wait_seconds": 63.0,
+            "server_retry_after_seconds": 60.0,
+            "local_wait_seconds": 2.0,
+            "jitter_seconds": 3.0,
+            "applied_wait_seconds": 63.0,
+            "wait_source": "server",
+            "reason": "http_524",
+            "error_type": "_HttpError",
+            "status_code": 524,
+            "request_id": "req-test",
+        }
+    ]
+    assert "wait_source=server" in caplog.text
+    assert "status_code=524" in caplog.text
+
+
+@pytest.mark.parametrize(("max_retries", "total_attempts"), [(0, 1), (4, 5)])
+def test_max_retries_remains_additional_attempts(max_retries: int, total_attempts: int):
+    calls = 0
+    reporter = RetryReporter(
+        "test", "direct", "translation.body", total_attempts, lambda *_a, **_k: None
+    )
+
+    def request():
+        nonlocal calls
+        calls += 1
+        raise _HttpError(524, headers={"retry-after-ms": "0"})
+
+    wrapped = provider_retry(max_retries, reporter, sleep=lambda _delay: None)(request)
+    with pytest.raises(_HttpError):
+        wrapped()
+
+    assert calls == total_attempts
+
+
+def test_server_retry_after_uses_cooperative_deadline_aware_sleep():
+    sleeps: list[float] = []
+    reporter = RetryReporter("test", "direct", "translation.body", 2, lambda *_a, **_k: None)
+
+    def request():
+        raise _HttpError(524, headers={"retry-after": "60"})
+
+    def cooperative_sleep(delay: float) -> None:
+        sleeps.append(delay)
+        raise RequestStopped("Model request deadline reached; resume with a new deadline")
+
+    wrapped = provider_retry(1, reporter, sleep=cooperative_sleep)(request)
+    with (
+        patch.object(retrying, "_FALLBACK_WAIT", return_value=1.0),
+        patch.object(retrying.random, "uniform", return_value=0.0),
+        pytest.raises(RequestStopped, match="deadline"),
+    ):
+        wrapped()
+
+    assert sleeps == [60.0]
+
+
 def test_openai_sdk_retry_is_disabled():
     client = RoutedLLMClient(_config(max_retries=4))
     with (
@@ -147,7 +425,7 @@ def test_openai_sdk_retry_is_disabled():
     )
 
 
-def test_transient_error_retries_once_and_records_wait_event():
+def test_transient_error_retries_once_and_records_wait_event(monkeypatch):
     client = RoutedLLMClient(_config(max_retries=1))
     stub = _ClientStub(
         [
@@ -156,6 +434,8 @@ def test_transient_error_retries_once_and_records_wait_event():
         ]
     )
     client.adapter("default")._client = stub
+    monkeypatch.setattr(retrying, "_FALLBACK_WAIT", lambda _state: 0.0)
+    monkeypatch.setattr(client.limits, "wait_for_retry", lambda _delay: None)
     events: list[dict[str, Any]] = []
     client.set_event_sink(
         lambda event, **data: (
@@ -175,7 +455,7 @@ def test_transient_error_retries_once_and_records_wait_event():
     assert events[0]["request_id"] == "req-test"
 
 
-def test_retry_exhaustion_is_recorded_and_reraises_last_error():
+def test_retry_exhaustion_is_recorded_and_reraises_last_error(monkeypatch):
     client = RoutedLLMClient(_config(max_retries=2))
     failures = [
         _HttpError(503, headers={"retry-after-ms": "0"}),
@@ -184,6 +464,8 @@ def test_retry_exhaustion_is_recorded_and_reraises_last_error():
     ]
     stub = _ClientStub(failures)
     client.adapter("default")._client = stub
+    monkeypatch.setattr(retrying, "_FALLBACK_WAIT", lambda _state: 0.0)
+    monkeypatch.setattr(client.limits, "wait_for_retry", lambda _delay: None)
     events: list[dict[str, Any]] = []
     client.set_event_sink(
         lambda event, **data: (

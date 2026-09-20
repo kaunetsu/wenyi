@@ -125,7 +125,7 @@ llm:
 
 兼容端点的 `reasoning_style` 支持 `none`（默认）、`deepseek`、`openai`、`openrouter`。只有明确配置 `json_response_fallback: reasoning_content`，才会从网关的该字段读取有效 JSON；默认 `none`，非 JSON 推理文本不会被当作结果。Gemini 的 thinking level 和 budget 互斥。原始扩展字典依赖具体端点；离线校验无法保证远端模型接受这些参数。
 
-SDK 内置重试统一关闭。Wenyi 统一重试连接/超时、HTTP 408/409/429、5xx 瞬时错误及空响应；退避期间释放连接并发名额，并响应取消。普通 4xx 错误不重试。PDF 默认 MinerU 解析另用 `MINERU_API_KEY`；可选 BabelDOC HTTP bridge 独立于模型路由。
+SDK 内置重试统一关闭。Wenyi 统一重试连接/超时、HTTP 408/409/429、5xx 瞬时错误及空响应；`max_retries` 表示首次请求之后的额外尝试次数。没有有效的服务端 `Retry-After` 时，使用本地上限为 30 秒的 full-jitter 指数退避。有效的 `retry-after-ms` 请求头、数字秒数 `Retry-After` 或 HTTP-date `Retry-After` 提供最小等待下限，不受本地上限截断；Wenyi 取服务端等待与本地退避的较大值，再增加最多 10%、且不超过 5 秒的只向后 jitter，以减少并发请求同步恢复。退避期间释放连接并发名额，并响应取消。普通 4xx 错误不重试。PDF 默认 MinerU 解析另用 `MINERU_API_KEY`；可选 BabelDOC HTTP bridge 独立于模型路由。
 
 DeepSeek 的 `reasoning_effort` 可设为 `low`、`high` 或 `max`；`thinking: false` 显式关闭思考，此时不发送推理强度。未配置输出上限且流程没有输出提示时，由服务采用默认上限：非思考模式 8K、思考模式 64K，`max` 强度下为 128K。流程提示和显式 `max_output_tokens` 仍按上述配置规则处理。详见 [DeepSeek 请求参数](https://api-docs.deepseek.com/api/create-chat-completion/)。
 
@@ -190,7 +190,7 @@ llm:
 
 相同 `quota_group` 的连接在本次运行内共享 RPM/TPM 预留；连接并发限制也覆盖使用它的全部操作。这些控制不协调其他进程，也不能替代服务端的账号配额。Token 控制先按保守的提示词字节估算加显式输出上限预留，再根据返回的实际用量调整；预留量不是实际计费，也不是金额上限。启用 token 限制时，每个可达的主模型和备用模型都必须有有限输出上限。
 
-`deadline_seconds` 和 Ctrl+C 协作式停止排队请求与重试等待；已进入 SDK 的请求仍可能执行到完成或连接超时。完成结果保留供续跑；重新启动会获得一份新的运行预算。
+`deadline_seconds` 是 invocation-wide 的协作式预算，不是单次 HTTP 尝试或单个逻辑模型请求的硬 deadline。它与 Ctrl+C 协作式停止排队请求与重试等待；已进入 SDK 的请求仍可能执行到完成或连接超时。完成结果保留供续跑；重新启动会获得一份新的运行预算。
 
 无状态请求可以显式设置 `fallbacks: [备用配置名]`。只有可重试的传输错误耗尽重试后才进入该链；认证、配置及输出结构错误不触发模型切换。可续跑的 `review.verify`、`review.arbitrate`、`autofix.verify` 对话禁止故障切换，避免一条取证轨迹混用模型。
 
