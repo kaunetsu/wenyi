@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -12,7 +13,7 @@ from typing import Any, Generic, TypeVar
 from pydantic import BaseModel, ConfigDict
 
 from .configuration import ProviderConfig
-from .retrying import RetryReporter, provider_retry
+from .retrying import RetryReporter, _provider_error_metadata, provider_retry
 from .usage import UsageSample
 
 OptionsT = TypeVar("OptionsT", bound=BaseModel)
@@ -40,6 +41,8 @@ class RequestContext:
     record_usage: Callable[[UsageSample | None], None]
     attempt_scope: Callable[..., Any]
     sleep: Callable[[float], None] | None = None
+    clock: Callable[[], float] = time.monotonic
+    route_index: int = 0
 
 
 class ProviderAdapter(ABC):
@@ -85,11 +88,34 @@ class ProviderAdapter(ABC):
             max_attempts=self.cfg.max_retries + 1,
             emit=context.emit,
         )
+        route_attempt = 0
 
         @provider_retry(self.cfg.max_retries, reporter, sleep=context.sleep)
         def request() -> str:
+            nonlocal route_attempt
             with context.attempt_scope():
-                return self._request(messages, model, json_mode=json_mode, context=context)
+                route_attempt += 1
+                started = context.clock()
+                try:
+                    result = self._request(messages, model, json_mode=json_mode, context=context)
+                except BaseException as error:
+                    context.emit(
+                        "llm_transport_attempt_finished",
+                        route_index=context.route_index,
+                        route_attempt=route_attempt,
+                        attempt_elapsed_ms=round(max(0.0, context.clock() - started) * 1000, 3),
+                        outcome="error",
+                        **_provider_error_metadata(error),
+                    )
+                    raise
+                context.emit(
+                    "llm_transport_attempt_finished",
+                    route_index=context.route_index,
+                    route_attempt=route_attempt,
+                    attempt_elapsed_ms=round(max(0.0, context.clock() - started) * 1000, 3),
+                    outcome="success",
+                )
+                return result
 
         return request()
 

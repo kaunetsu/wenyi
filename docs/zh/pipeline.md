@@ -139,4 +139,6 @@ Agent 判定、失败原因、目标哈希和发布状态；章节 JSON 不增�
 
 共享 transport 将 `max_retries` 解释为额外尝试次数。本地 full-jitter 指数退避的上限为 30 秒；有效的服务端 `Retry-After` 保持为不受该上限截断的最小等待下限，并在此下限之后增加少量只向后的 jitter，避免并发请求同步恢复。所有等待仍通过本次 invocation 的协作式取消与 deadline 机制执行，不在提供商或 stage 内直接 sleep。
 
+每个已开始的 provider attempt 在 provider request 返回或抛出异常后都会产生 `llm_transport_attempt_finished`。其中基于 monotonic clock 的 `attempt_elapsed_ms` 不包括并发与 quota 排队，也不包括 retry sleep。`attempt` 在同一 `call_id` 内保持全局连续；primary route 的 `route_index` 为 0，每个显式 fallback 的 `route_attempt` 都从 1 重新开始。新增的 `llm_call_finished` terminal event 对每个逻辑调用只记录一次，覆盖排队、retry 与 fallback 的 monotonic 总耗时和最终 outcome。通用 workload 字段只包含规模与请求设置，不含 prompt 或 response 正文。若无法从异常类型安全判断通用 `RequestStopped` 的具体原因，则 outcome 记录为 `stopped`。
+
 Review 比较可达操作的实际推理身份，模型、端点或选项变化会启动新 Review，改动无关路由或并发则保留缓存。Autofix 发布索引优先恢复；多轮取证不跨模型复用轨迹。全书与 Review 账本先写 `usage-pending.json` 再更新各自 `usage.json`，续跑能幂等补完中断提交。

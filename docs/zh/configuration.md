@@ -198,7 +198,7 @@ llm:
 
 单一账本维护总量，以及互相独立的 `by_tier`、`by_stage`（操作 ID）、`by_provider`、`by_model` 视图。直接指定模型的调用归入 `direct` 档位。物理身份区分端点、模型与推理选项，即使复用了别名也不会混为一项；别名和显示标签不参与总量计算。解析失败、随后重试的响应仍保留实际用量；服务端没返回用量时不虚构 token 计费。
 
-事件记录路由计划及请求的操作、模型、提供商、配置名、连接名、推理指纹、调用 ID、尝试次数。全书和 Review 账本先写 `usage-pending.json`，再更新正式账本；本地合并中断后能补完且不重复累计。若进程在远端受理后、本地保存前被强杀，仍可能存在无法确定的远端用量。
+事件记录路由计划及请求的操作、模型、提供商、配置名、连接名、推理指纹、调用 ID、尝试次数。Transport attempt 事件额外记录 monotonic 请求时长、全局与 route 内的 attempt 身份、安全的 HTTP 错误 metadata，以及通用 workload 度量（`input_bytes`、消息数、JSON mode 和实际解析出的输出上限），但不保存 prompt 或 response 正文。逻辑调用的 terminal event 记录 monotonic 总耗时（包括排队、retry backoff 和显式 fallback）、最终 outcome 与实际进入的 fallback 数量。`input_bytes` 是通用 messages JSON 表示的 UTF-8 字节长度，不是 tokenizer token 数或最终 HTTP body 大小。全书和 Review 账本先写 `usage-pending.json`，再更新正式账本；本地合并中断后能补完且不重复累计。若进程在远端受理后、本地保存前被强杀，仍可能存在无法确定的远端用量。
 
 翻译、分析、概要、SRT 模型变更会保留完成结果，仅后续请求使用新路由。可达的 Review 模型、端点、选项或协议变化会开启新 Review；无关路由、密钥轮换、别名和并发调整不会使其失效。缺少推理身份的旧 Review 缓存保留供检查，但不复用。Autofix 使用独立指纹：已写发布索引的任务按保存的候选补完；未完成的模型规划需恢复原路由后继续。
 

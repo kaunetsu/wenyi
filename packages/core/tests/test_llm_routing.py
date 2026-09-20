@@ -1,9 +1,11 @@
 """Offline contracts for registered operations and immutable model routing."""
 
+import json
 from typing import cast
 
 import pytest
 from wenyi_core.config import Config
+from wenyi_core.llm import retrying
 from wenyi_core.llm.configuration import LLMConfig
 from wenyi_core.llm.limits import RequestCancelled, RequestLimits, RequestStopped
 from wenyi_core.llm.operations import OperationSpec, register_operations
@@ -332,6 +334,258 @@ def test_retry_releases_permit_and_records_every_returned_usage(monkeypatch):
     assert [row["attempt"] for row in starts] == [1, 2]
     assert len({row["call_id"] for row in events}) == 1
     assert all(row["model"] == "first" and row["operation"] == "translation.body" for row in events)
+
+
+class _GatewayError(Exception):
+    def __init__(self, status_code: int, request_id: str = "req-gateway") -> None:
+        super().__init__("provider response body and private API secret must remain private")
+        self.status_code = status_code
+        self.request_id = request_id
+
+
+def test_workload_serialization_failure_emits_one_logical_terminal_event(monkeypatch):
+    client = RoutedLLMClient(_graph())
+    clock_calls = []
+    client.limits.clock = lambda: clock_calls.append(None) or 5.0
+    events = []
+    client.set_event_sink(lambda event, **data: events.append({"event": event, **data}))
+    adapter_calls = []
+    original_adapter = client.adapter
+
+    def adapter(connection):
+        adapter_calls.append(connection)
+        return original_adapter(connection)
+
+    messages = [{"role": "user", "content": object()}]
+    serialization_errors = []
+    real_dumps = json.dumps
+
+    def failing_dumps(value, **kwargs):
+        try:
+            return real_dumps(value, **kwargs)
+        except TypeError as error:
+            serialization_errors.append(error)
+            raise
+
+    monkeypatch.setattr(client, "adapter", adapter)
+    monkeypatch.setattr(json, "dumps", failing_dumps)
+
+    with pytest.raises(TypeError) as caught:
+        client.complete(messages, operation="translation.body")
+
+    assert caught.value is serialization_errors[0]
+    assert len(clock_calls) == 2
+    assert adapter_calls == []
+    assert [event["event"] for event in events] == ["llm_call_finished"]
+    assert events[0]["outcome"] == "failed"
+    assert events[0]["total_attempts"] == 0
+    assert events[0]["input_bytes"] is None
+
+
+def test_attempt_and_logical_timing_exclude_retry_sleep_and_record_workload(monkeypatch):
+    raw = _graph().model_dump()
+    raw["providers"]["a"]["max_retries"] = 1
+    client = RoutedLLMClient(LLMConfig.model_validate(raw))
+    now = [0.0]
+    client.limits.clock = lambda: now[0]
+    events = []
+    client.set_event_sink(lambda event, **data: events.append({"event": event, **data}))
+    calls = 0
+
+    def request(self, messages, model, *, json_mode, context):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            now[0] += 0.1
+            error = _GatewayError(524)
+            error.response = type("Response", (), {"headers": {"retry-after": "10"}})()
+            raise error
+        now[0] += 0.2
+        return "private response text"
+
+    def wait(delay):
+        assert delay == 10.0
+        now[0] += delay
+
+    messages = [
+        {"role": "system", "content": "private prompt text"},
+        {"role": "user", "content": "private source text"},
+    ]
+    monkeypatch.setattr(FakeProvider, "_request", request)
+    monkeypatch.setattr(retrying, "_FALLBACK_WAIT", lambda _state: 0.0)
+    monkeypatch.setattr(retrying.random, "uniform", lambda _start, _end: 0.0)
+    monkeypatch.setattr(client.limits, "wait_for_retry", wait)
+
+    assert client.complete(messages, operation="translation.body", json_mode=True) == (
+        "private response text"
+    )
+
+    attempts = [row for row in events if row["event"] == "llm_transport_attempt_finished"]
+    assert [row["attempt_elapsed_ms"] for row in attempts] == [100.0, 200.0]
+    assert [(row["attempt"], row["route_index"], row["route_attempt"]) for row in attempts] == [
+        (1, 0, 1),
+        (2, 0, 2),
+    ]
+    assert {
+        key: attempts[0][key]
+        for key in ("outcome", "status_code", "reason", "request_id", "error_type")
+    } == {
+        "outcome": "error",
+        "status_code": 524,
+        "reason": "http_524",
+        "request_id": "req-gateway",
+        "error_type": "_GatewayError",
+    }
+    assert attempts[1]["outcome"] == "success"
+    assert "status_code" not in attempts[1]
+
+    finished = [row for row in events if row["event"] == "llm_call_finished"]
+    assert len(finished) == 1
+    assert finished[0]["logical_elapsed_ms"] == 10300.0
+    assert finished[0]["outcome"] == "success"
+    assert finished[0]["total_attempts"] == 2
+    assert finished[0]["used_fallback"] is False
+    assert finished[0]["fallback_count"] == 0
+
+    expected_bytes = len(json.dumps(messages, ensure_ascii=False).encode("utf-8"))
+    starts = [row for row in events if row["event"] == "llm_request_started"]
+    assert all(
+        row["input_bytes"] == expected_bytes
+        and row["message_count"] == 2
+        and row["json_mode"] is True
+        and row["max_output_tokens"] == 128
+        for row in starts
+    )
+    serialized = json.dumps(events)
+    for private_value in (
+        "private prompt text",
+        "private source text",
+        "private response text",
+        "private API secret",
+        "provider response body must remain private",
+    ):
+        assert private_value not in serialized
+
+
+def test_fallback_preserves_global_attempt_and_resets_route_attempt(monkeypatch):
+    raw = _graph(routes={"translation.body": {"model": "one", "fallbacks": ["two"]}}).model_dump()
+    raw["providers"]["a"]["max_retries"] = 1
+    client = RoutedLLMClient(LLMConfig.model_validate(raw))
+    events = []
+    client.set_event_sink(lambda event, **data: events.append({"event": event, **data}))
+
+    def request(self, messages, model, **kwargs):
+        if model.model == "first":
+            raise TimeoutError
+        return "fallback"
+
+    monkeypatch.setattr(FakeProvider, "_request", request)
+    monkeypatch.setattr(retrying, "_FALLBACK_WAIT", lambda _state: 0.0)
+    monkeypatch.setattr(client.limits, "wait_for_retry", lambda _delay: None)
+
+    assert client.complete([], operation="translation.body") == "fallback"
+
+    attempts = [row for row in events if row["event"] == "llm_transport_attempt_finished"]
+    assert [(row["attempt"], row["route_index"], row["route_attempt"]) for row in attempts] == [
+        (1, 0, 1),
+        (2, 0, 2),
+        (3, 1, 1),
+    ]
+    assert len({row["call_id"] for row in events}) == 1
+    finished = [row for row in events if row["event"] == "llm_call_finished"]
+    assert len(finished) == 1
+    assert finished[0]["outcome"] == "success"
+    assert finished[0]["total_attempts"] == 3
+    assert finished[0]["route_index"] == 1
+    assert finished[0]["used_fallback"] is True
+    assert finished[0]["fallback_count"] == 1
+
+
+def test_failed_fallback_emits_one_logical_terminal_event(monkeypatch):
+    client = RoutedLLMClient(
+        _graph(routes={"translation.body": {"model": "one", "fallbacks": ["two"]}})
+    )
+    events = []
+    client.set_event_sink(lambda event, **data: events.append({"event": event, **data}))
+    monkeypatch.setattr(
+        FakeProvider,
+        "_request",
+        lambda self, messages, model, **kwargs: (_ for _ in ()).throw(TimeoutError()),
+    )
+
+    with pytest.raises(TimeoutError):
+        client.complete([], operation="translation.body")
+
+    attempts = [row for row in events if row["event"] == "llm_transport_attempt_finished"]
+    assert [(row["attempt"], row["route_index"], row["route_attempt"]) for row in attempts] == [
+        (1, 0, 1),
+        (2, 1, 1),
+    ]
+    finished = [row for row in events if row["event"] == "llm_call_finished"]
+    assert len(finished) == 1
+    assert finished[0]["outcome"] == "failed"
+    assert finished[0]["final_reason"] == "timeout"
+    assert finished[0]["total_attempts"] == 2
+    assert finished[0]["route_index"] == 1
+    assert finished[0]["used_fallback"] is True
+    assert finished[0]["fallback_count"] == 1
+
+
+def test_non_retryable_failure_emits_attempt_and_logical_terminal_events(monkeypatch):
+    client = RoutedLLMClient(_graph())
+    events = []
+    client.set_event_sink(lambda event, **data: events.append({"event": event, **data}))
+    monkeypatch.setattr(
+        FakeProvider,
+        "_request",
+        lambda self, messages, model, **kwargs: (_ for _ in ()).throw(_GatewayError(401)),
+    )
+
+    with pytest.raises(_GatewayError):
+        client.complete([], operation="translation.body")
+
+    attempt = next(row for row in events if row["event"] == "llm_transport_attempt_finished")
+    assert attempt["outcome"] == "error"
+    assert attempt["status_code"] == 401
+    assert attempt["reason"] == "not_retryable"
+    finished = [row for row in events if row["event"] == "llm_call_finished"]
+    assert len(finished) == 1
+    assert finished[0]["outcome"] == "failed"
+    assert finished[0]["final_status_code"] == 401
+    assert finished[0]["final_reason"] == "not_retryable"
+
+
+def test_cancelled_and_deadline_stops_emit_logical_terminal_events():
+    cancelled = RoutedLLMClient(_graph())
+    cancelled_events = []
+    cancelled.set_event_sink(
+        lambda event, **data: cancelled_events.append({"event": event, **data})
+    )
+    cancelled.cancel()
+
+    with pytest.raises(RequestCancelled):
+        cancelled.complete([], operation="translation.body")
+
+    cancelled_finished = [row for row in cancelled_events if row["event"] == "llm_call_finished"]
+    assert len(cancelled_finished) == 1
+    assert cancelled_finished[0]["outcome"] == "cancelled"
+    assert cancelled_finished[0]["final_reason"] == "cancelled"
+    assert cancelled_finished[0]["total_attempts"] == 0
+
+    deadline = RoutedLLMClient(_graph(budget={"deadline_seconds": 1}))
+    deadline_events = []
+    deadline.set_event_sink(lambda event, **data: deadline_events.append({"event": event, **data}))
+    deadline.limits.started = 0.0
+    deadline.limits.clock = lambda: 2.0
+
+    with pytest.raises(RequestStopped, match="deadline"):
+        deadline.complete([], operation="translation.body")
+
+    deadline_finished = [row for row in deadline_events if row["event"] == "llm_call_finished"]
+    assert len(deadline_finished) == 1
+    assert deadline_finished[0]["outcome"] == "stopped"
+    assert deadline_finished[0]["final_reason"] == "stopped"
+    assert deadline_finished[0]["total_attempts"] == 0
 
 
 def test_only_explicit_stateless_failover_is_used(monkeypatch):

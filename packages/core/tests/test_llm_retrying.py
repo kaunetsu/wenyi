@@ -458,32 +458,38 @@ def test_transient_error_retries_once_and_records_wait_event(monkeypatch):
 def test_retry_exhaustion_is_recorded_and_reraises_last_error(monkeypatch):
     client = RoutedLLMClient(_config(max_retries=2))
     failures = [
-        _HttpError(503, headers={"retry-after-ms": "0"}),
-        _HttpError(503, headers={"retry-after-ms": "0"}),
-        _HttpError(503, headers={"retry-after-ms": "0"}),
+        _HttpError(524, headers={"retry-after-ms": "0"}),
+        _HttpError(524, headers={"retry-after-ms": "0"}),
+        _HttpError(524, headers={"retry-after-ms": "0"}),
     ]
     stub = _ClientStub(failures)
     client.adapter("default")._client = stub
     monkeypatch.setattr(retrying, "_FALLBACK_WAIT", lambda _state: 0.0)
     monkeypatch.setattr(client.limits, "wait_for_retry", lambda _delay: None)
     events: list[dict[str, Any]] = []
-    client.set_event_sink(
-        lambda event, **data: (
-            events.append({"event": event, **data}) if event.startswith("llm_retry_") else None
-        )
-    )
+    client.set_event_sink(lambda event, **data: events.append({"event": event, **data}))
 
     with pytest.raises(_HttpError):
         client.complete([{"role": "user", "content": "x"}], operation="analysis.style")
 
     assert stub.completions.calls == 3
-    assert [event["event"] for event in events] == [
+    retry_events = [event for event in events if event["event"].startswith("llm_retry_")]
+    assert [event["event"] for event in retry_events] == [
         "llm_retry_wait",
         "llm_retry_wait",
         "llm_retry_exhausted",
     ]
-    assert events[-1]["attempts"] == 3
-    assert events[-1]["stage"] == "analysis.style"
+    assert retry_events[-1]["attempts"] == 3
+    assert retry_events[-1]["stage"] == "analysis.style"
+    attempts = [event for event in events if event["event"] == "llm_transport_attempt_finished"]
+    assert [event["attempt"] for event in attempts] == [1, 2, 3]
+    assert all(event["status_code"] == 524 and event["reason"] == "http_524" for event in attempts)
+    finished = [event for event in events if event["event"] == "llm_call_finished"]
+    assert len(finished) == 1
+    assert finished[0]["outcome"] == "failed"
+    assert finished[0]["total_attempts"] == 3
+    assert finished[0]["final_status_code"] == 524
+    assert finished[0]["final_reason"] == "http_524"
 
 
 def test_permanent_error_is_not_retried_or_reported_as_exhaustion():

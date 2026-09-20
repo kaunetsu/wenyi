@@ -260,6 +260,16 @@ def _request_id(error: Any) -> str | None:
     return _header(error, "x-request-id") or _header(error, "request-id")
 
 
+def _provider_error_metadata(error: Any) -> dict[str, Any]:
+    """Build safe provider error fields without request or response bodies."""
+    return {
+        "reason": retry_reason(error) or "not_retryable",
+        "error_type": type(error).__name__,
+        "status_code": error_status_code(error),
+        "request_id": _request_id(error),
+    }
+
+
 @dataclass(frozen=True)
 class RetryReporter:
     """Record retry waits and exhaustion in standard logs and optional book events."""
@@ -272,12 +282,7 @@ class RetryReporter:
 
     def _error_fields(self, error: Any) -> dict[str, Any]:
         """Build safe error fields excluding request bodies, response bodies and credentials."""
-        return {
-            "reason": retry_reason(error) or "not_retryable",
-            "error_type": type(error).__name__,
-            "status_code": error_status_code(error),
-            "request_id": _request_id(error),
-        }
+        return _provider_error_metadata(error)
 
     def before_sleep(self, retry_state: RetryCallState) -> None:
         """Tenacity callback recording failed attempts, the next attempt and actual wait
