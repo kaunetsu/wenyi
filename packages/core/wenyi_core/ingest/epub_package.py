@@ -100,6 +100,41 @@ def _parse_opf(zf: zipfile.ZipFile, opf_path: str) -> tuple[str, list[str], list
     return title, hrefs, toc_paths
 
 
+def _parse_opf_authors(zf: zipfile.ZipFile, opf_path: str) -> list[str]:
+    """Return creators without an explicit non-author EPUB role."""
+    root = ET.fromstring(zf.read(opf_path))
+    refined_roles: dict[str, str] = {}
+    for element in root.iter():
+        if element.tag.rsplit("}", 1)[-1] != "meta":
+            continue
+        if element.attrib.get("property", "").strip() != "role":
+            continue
+        refines = element.attrib.get("refines", "").strip()
+        if refines.startswith("#") and element.text:
+            refined_roles[refines[1:]] = element.text.strip().lower()
+
+    authors: list[str] = []
+    for element in root.iter():
+        if element.tag.rsplit("}", 1)[-1] != "creator":
+            continue
+        role = refined_roles.get(element.attrib.get("id", "").strip())
+        if role is None:
+            role = next(
+                (
+                    value.strip().lower()
+                    for key, value in element.attrib.items()
+                    if key.rsplit("}", 1)[-1] == "role"
+                ),
+                "",
+            )
+        if role and role.rsplit("/", 1)[-1].rsplit(":", 1)[-1] not in {"aut", "author"}:
+            continue
+        name = "".join(element.itertext()).strip()
+        if name and name not in authors:
+            authors.append(name)
+    return authors
+
+
 def _manifest_xhtml_hrefs(zf: zipfile.ZipFile, opf_path: str) -> list[str]:
     """List all OPF XHTML/HTML resources so annotations outside the spine can be parsed."""
     root = ET.fromstring(zf.read(opf_path))

@@ -1058,6 +1058,8 @@ export interface components {
              * @default true
              */
             about_page: boolean;
+            /** Include Translator Afterword */
+            include_translator_afterword?: boolean | null;
             /**
              * Preserve Source Style
              * @default false

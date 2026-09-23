@@ -459,9 +459,12 @@ class PostgresStorage:
                         entry["index"]: self.load_chapter(entry["index"])
                         for entry in manifest["chapters"]
                     }
+                    artifacts = {
+                        "translator-afterword.json": self.read_artifact("translator-afterword.json")
+                    }
                 finally:
                     self._local.state_conn = None
-        return ExportSnapshotStore(self.run_dir, manifest, chapters)
+        return ExportSnapshotStore(self.run_dir, manifest, chapters, artifacts)
 
     # Structured project state and generic artifacts.
     def _save_field(self, field: str, value: Any) -> None:

@@ -39,6 +39,8 @@ pipeline:
   polish: true # Polish the full translation with the strong tier; enabled by default and adds substantial cost
   rolling_context_segments: 6 # Number of recent translated paragraphs supplied as context
   book_understanding: true # Prescan the source for a whole-book synopsis and chapter digests used during translation
+  translator_afterword: false # Generate and critically revise a translator's afterword after final review
+  translator_afterword_context: "" # Optional verified author and writing-background facts
   prescan_concurrency: 4 # Concurrent chapter-digest workers; chapters are independent, 1 runs serially
   annotation_alignment: true # Align EPUB annotation links per paragraph; if disabled, target links fall back to paragraph ends
   annotation_alignment_concurrency: 4 # Maximum concurrent alignment requests when a paragraph has multiple annotations
@@ -73,6 +75,7 @@ output:
   bilingual: false # Bilingual output (<title>.<target-language>-bi.epub)
   bilingual_order: target_first # target_first=translation first; source_first=source first
   bilingual_preserve_source_style: false # true=preserve original source styling; false=render source in muted gray
+  include_translator_afterword: true # Include a saved translator's afterword when available
   about_page: true # Append an About This Translation page
   punctuation_normalize: true # Normalize only exported copies; preserve formal translation state
 """
@@ -100,6 +103,8 @@ class PipelineConfig(BaseModel):
     rolling_context_segments: int = 6
     # Prescan for a synopsis and chapter digests; disable to save prescan cost.
     book_understanding: bool = True
+    translator_afterword: bool = False
+    translator_afterword_context: str = Field(default="", max_length=20000)
     prescan_concurrency: int = (
         4  # Concurrent chapter-digest workers; chapters are independent, 1 runs serially
     )
@@ -151,6 +156,7 @@ class OutputConfig(BaseModel):
         "target_first"  # target_first=translation first (default); source_first=source first
     )
     bilingual_preserve_source_style: bool = False
+    include_translator_afterword: bool = True
     about_page: bool = True  # Append the project about page
     punctuation_normalize: bool = (
         True  # Normalize export copies only; never write back to chapter target

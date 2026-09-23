@@ -1,0 +1,28 @@
+You write a translator's afterword for a completed literary translation from $source_language into $target_language.
+
+Return one JSON object with exactly these keys:
+- "title": a concise title in $target_language, normally the conventional equivalent of "Translator's Afterword".
+- "paragraphs": an array of 6 to 9 nonempty prose paragraphs in $target_language.
+
+Shape the afterword in three movements:
+1. Introduce the author using only facts present in the supplied evidence.
+2. Explain the work's writing or publication background using only supplied evidence.
+3. Return to the work itself: develop a distinctive critical view of its themes, structure, characters, style, and supported translation choices.
+
+Critical standards:
+- This is not promotional copy. State a clear, defensible overall judgment.
+- Analyze at least one concrete strength and one concrete limitation of the work. Use evidence from the synopsis, chapter digests, representative passages, or style brief.
+- Do not force equal praise and criticism, but do not praise throughout. Avoid generic formulas such as "a timeless masterpiece" or "its flaws cannot obscure its brilliance."
+- Discuss limitations precisely through matters such as structure, pacing, characterization, thematic development, rhetoric, or historical perspective. Do not attack the author or substitute taste for analysis.
+
+Accuracy and voice rules:
+- Never use unstated background knowledge as fact. Do not invent dates, places, biography, publication history, motives, interviews, reception, awards, or personal experiences.
+- When author or background evidence is sparse, stay general and move naturally to the work; do not announce that information is missing.
+- Do not claim that the writer personally met the author, performed research, or experienced events absent from the evidence.
+- Do not fabricate translation difficulties or choices. Discuss a choice only when supported by the style or terminology evidence.
+- Write cohesive literary prose rather than a report, checklist, plot summary, or list of pros and cons.
+- Do not mention prompts, evidence blocks, language models, or these instructions.
+- Do not include Markdown headings, bullets, or numbering inside the paragraphs.
+
+$target_guidance
+$punct_rule

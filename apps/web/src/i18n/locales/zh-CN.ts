@@ -150,6 +150,8 @@ const zhCN = {
   "export.translationFirst": "译文在上",
   "export.sourceFirst": "原文在上",
   "export.includeAnAboutThisTranslationPage": "附加“关于此翻译”说明页",
+  "export.includeTranslatorAfterword": "附加已生成的译者后记",
+  "export.afterwordSummary": "译者后记：{value}",
   "export.preserveSourceFormattingInBilingualOutput": "双语排版保留原文样式",
   "common.submitting": "提交中…",
   "export.generateExport": "生成导出文件",
@@ -469,6 +471,12 @@ const zhCN = {
   "providerSettings.operationSpecificModelRoutesTakePrecedenceOver":
     "模型 ID 用于项目选用和备用路由，模型参数可在高级 YAML 中配置。",
   "settings.bookUnderstanding": "全书预理解",
+  "settings.generateTranslatorAfterword": "生成译者后记",
+  "settings.translatorAfterwordContext": "作者与创作背景材料",
+  "settings.translatorAfterwordContextPlaceholder":
+    "填写可核实的作者生平、创作缘起、写作年代或出版背景。",
+  "settings.translatorAfterwordContextHelp":
+    "模型只应依据这里的材料和书内证据陈述背景事实；留空时会减少具体背景描述。",
   "settings.polishing": "润色",
   "settings.applyAutofixesToTheSavedTranslation":
     "审校后自动修复并写回正式译文",

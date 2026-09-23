@@ -149,6 +149,8 @@ def _book_operation(kind, pid, storage, config, client, progress, params):
     steps = {"translate", "report"}
     if config.pipeline.review:
         steps.add("review")
+    if config.pipeline.translator_afterword:
+        steps.add("afterword")
     orch.run_steps(source, steps, progress=progress)
     return "done"
 
@@ -346,6 +348,7 @@ def _render_export_sync(
     bilingual: bool = False,
     order: str = "target_first",
     about_page: bool = True,
+    include_translator_afterword: bool | None = None,
     preserve_source_style: bool = False,
     punctuation_normalize: bool | None = None,
     pdf_engine: str = "weasyprint",
@@ -403,6 +406,9 @@ def _render_export_sync(
                 punctuation_normalize=config.output.punctuation_normalize
                 if punctuation_normalize is None
                 else punctuation_normalize,
+                include_translator_afterword=config.output.include_translator_afterword
+                if include_translator_afterword is None
+                else include_translator_afterword,
                 pdf_engine=pdf_engine,
                 babeldoc_timeout=config.pipeline.babeldoc_timeout,
             )

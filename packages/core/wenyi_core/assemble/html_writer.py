@@ -12,6 +12,8 @@ from html import escape
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
+from wenyi_core.afterword import TranslatorAfterword
+from wenyi_core.assemble.afterword import afterword_html
 from wenyi_core.assemble.epub_resources import _epub_resource_specs, _render_epub_resources
 from wenyi_core.assemble.html_bilingual import _BILINGUAL_CSS, _BILINGUAL_STYLE_ID
 from wenyi_core.assemble.html_renderer import _render_chapter_html
@@ -30,6 +32,7 @@ def _assemble_html(
     bilingual: bool = False,
     order: str = "target_first",
     preserve_source_style: bool = False,
+    translator_afterword: TranslatorAfterword | None = None,
 ) -> str:
     """Backfill chapter templates and combine them into a complete HTML document."""
     m = store.load_manifest()
@@ -104,6 +107,9 @@ def _assemble_html(
                 body_parts.extend((source_html, target_html))
             else:
                 body_parts.extend((target_html, source_html))
+
+    if translator_afterword is not None:
+        body_parts.append(afterword_html(translator_afterword))
 
     full_html = f"""<!DOCTYPE html>
 <html lang="{escape(_epub_lang(_manifest_target_lang(m)))}">

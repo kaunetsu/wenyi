@@ -38,6 +38,7 @@ _OPF = """<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:title>サンプル小説</dc:title>
+    <dc:creator>見本 著者</dc:creator>
     <dc:language>ja</dc:language>
   </metadata>
   <manifest>

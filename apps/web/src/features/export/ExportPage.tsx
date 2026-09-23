@@ -28,6 +28,7 @@ export default function ExportPage() {
     "target_first",
   );
   const [about, setAbout] = useState(true);
+  const [includeAfterword, setIncludeAfterword] = useState(true);
   const [punctuation, setPunctuation] = useState(true);
   const [preserveStyle, setPreserveStyle] = useState(false);
   const [pdfBackend, setPdfBackend] = useState<PdfEngine | "">("");
@@ -55,6 +56,7 @@ export default function ExportPage() {
       setBilingual(Boolean(output.bilingual));
       setPunctuation(output.punctuation_normalize !== false);
       setAbout(output.about_page !== false);
+      setIncludeAfterword(output.include_translator_afterword !== false);
       setPreserveStyle(Boolean(output.bilingual_preserve_source_style));
       setOrder(
         output.bilingual_order === "source_first"
@@ -78,6 +80,7 @@ export default function ExportPage() {
         bilingual,
         order,
         about_page: subtitle ? false : about,
+        include_translator_afterword: subtitle ? false : includeAfterword,
         preserve_source_style: preserveStyle,
         punctuation_normalize: punctuation,
         ...(pdfBackend && fmt === "pdf" ? { pdf_engine: pdfBackend } : {}),
@@ -183,6 +186,9 @@ export default function ExportPage() {
                   tr("export.aboutSummary", {
                     value: tr(about ? "data.yes" : "data.no"),
                   }),
+                  tr("export.afterwordSummary", {
+                    value: tr(includeAfterword ? "data.yes" : "data.no"),
+                  }),
                   bilingual
                     ? tr("export.styleSummary", {
                         value: tr(preserveStyle ? "data.yes" : "data.no"),
@@ -253,6 +259,16 @@ export default function ExportPage() {
                       onChange={(e) => setAbout(e.target.checked)}
                     />
                     {tr("export.includeAnAboutThisTranslationPage")}
+                  </label>
+                )}
+                {!subtitle && (
+                  <label className="flex gap-2 items-center text-sm">
+                    <input
+                      type="checkbox"
+                      checked={includeAfterword}
+                      onChange={(e) => setIncludeAfterword(e.target.checked)}
+                    />
+                    {tr("export.includeTranslatorAfterword")}
                   </label>
                 )}
                 {!subtitle && bilingual && (

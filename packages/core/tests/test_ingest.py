@@ -12,7 +12,12 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag
 from wenyi_core.assemble.html_renderer import _render_chapter_html
 from wenyi_core.glossary.store import source_matches_text
-from wenyi_core.ingest.epub_package import _decode_markup, _find_opf_path, _parse_opf
+from wenyi_core.ingest.epub_package import (
+    _decode_markup,
+    _find_opf_path,
+    _parse_opf,
+    _parse_opf_authors,
+)
 from wenyi_core.ingest.epub_reader import peek_epub_title
 from wenyi_core.ingest.epub_toc import parse_toc_entries
 from wenyi_core.ingest.fb2_reader import read_fb2_binaries
@@ -36,6 +41,26 @@ from tests.sample_data import (
     write_sample_epub,
     write_sample_txt,
 )
+
+
+class TestEpubCreatorRoles(unittest.TestCase):
+    def test_explicit_translator_and_editor_roles_are_not_authors(self):
+        opf = """<package xmlns:dc="http://purl.org/dc/elements/1.1/"
+            xmlns:opf="http://www.idpf.org/2007/opf"><metadata>
+            <dc:creator id="author">Work Author</dc:creator>
+            <meta refines="#author" property="role">aut</meta>
+            <dc:creator id="translator">Translator</dc:creator>
+            <meta refines="#translator" property="role">trl</meta>
+            <dc:creator opf:role="edt">Editor</dc:creator>
+            <dc:creator>Unlabelled Creator</dc:creator>
+            </metadata></package>"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "roles.epub")
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("content.opf", opf)
+            with zipfile.ZipFile(path) as archive:
+                authors = _parse_opf_authors(archive, "content.opf")
+        self.assertEqual(authors, ["Work Author", "Unlabelled Creator"])
 
 
 class TestTokenBudget(unittest.TestCase):
@@ -115,7 +140,9 @@ class TestTextIngest(unittest.TestCase):
 _FB2_FLAT = """\
 <?xml version="1.0" encoding="utf-8"?>
 <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
-<description><title-info><book-title>平铺之书</book-title></title-info></description>
+<description><title-info><book-title>平铺之书</book-title>
+  <author><first-name>测试</first-name><last-name>作者</last-name></author>
+</title-info></description>
 <body>
   <section><title><p>第一章</p></title><p>第一段。</p><p>第二段。</p></section>
   <section><title><p>第二章</p></title><p>仅一段。</p></section>
@@ -204,6 +231,7 @@ class TestFb2Ingest(unittest.TestCase):
         doc = self._load(_FB2_FLAT)
         self.assertEqual(doc.fmt, "fb2")
         self.assertEqual(doc.title, "平铺之书")
+        self.assertEqual(doc.meta["authors"], ["测试 作者"])
         self.assertEqual(len(doc.chapters), 2)  # Exclude the notes body.
         ch1 = doc.chapters[0]
         self.assertEqual(ch1.title, "第一章")
@@ -1241,6 +1269,7 @@ class TestEpubIngest(unittest.TestCase):
             doc = load_document(p, "ja", "zh")
 
         self.assertEqual(doc.fmt, "epub")
+        self.assertEqual(doc.meta["authors"], ["見本 著者"])
         self.assertEqual(len(doc.chapters), 2)
         ch1 = doc.chapters[0]
         self.assertEqual(ch1.title, "第一章　出会い")
@@ -1556,11 +1585,14 @@ class TestPagebreakProcessingInstruction(unittest.TestCase):
             p = os.path.join(d, "novel.html")
             with open(p, "w", encoding="utf-8") as f:
                 f.write(
-                    "<html><body><h1>Chapter One</h1>"
+                    '<html><head><meta name="author" content="Test Author"></head>'
+                    "<body><h1>Chapter One</h1>"
                     '<p><?pagebreak number="11"?>Body text.</p></body></html>'
                 )
             doc = load_document(p, "en", "zh")
             self.assertEqual(doc.title, "novel")
+            self.assertEqual(doc.meta["document_creators"], ["Test Author"])
+            self.assertNotIn("authors", doc.meta)
             sources = [s.source for ch in doc.chapters for s in ch.segments]
             self.assertNotIn("pagebreak", "\n".join(sources))
             self.assertIn("Body text.", "\n".join(sources))

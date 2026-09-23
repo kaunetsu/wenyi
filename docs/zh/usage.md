@@ -279,6 +279,10 @@ uv run wenyi translate movie.srt
 uv run wenyi translate book.epub --polish --review
 uv run wenyi translate book.epub --no-polish --no-review
 
+# 生成经过批判性修订的译者后记，或在本次导出中省略已有后记
+uv run wenyi translate book.epub --afterword
+uv run wenyi assemble book.epub --no-afterword
+
 # 同时生成单语和双语版 / 仅生成双语版
 uv run wenyi translate book.epub --bilingual
 uv run wenyi translate book.epub --no-mono --bilingual
@@ -329,3 +333,14 @@ Fixer。最终完整段落只写入章节 `target`，不会给章节 JSON 增加
 `report` 汇总当前翻译状态和最新 Review 结果，不会修改正文；`assemble` 可在
 不重新调用模型的情况下重新导出已有译文。若另一个终端仍在翻译，导出会读取
 调用时已经落盘的一致快照，不必等到整本书结束；之后新完成的批次需再次导出才会进入成品。
+
+使用 `--afterword` 时，完整流程会在 Review/Autofix 之后先起草、再批判性修订一篇
+可选译者后记。证据包括源书作者元数据、已核实的
+`pipeline.translator_afterword_context`、全书概览、代表性章节梗概、风格说明和筛选后的
+最终术语。第二遍会删除无依据的背景事实和一味吹捧的套话，并要求具体评价作品至少一项
+长处和一项局限。保存的后记只用于导出：它不是正式章节，不参与翻译、术语、Review、
+Autofix 或标点规范化。
+修订中断后会复用已保存的草稿；生成依据变化则重新起草。EPUB 中明确标为译者或编辑的
+创建者不会当作作品作者；DOCX 和 HTML 的文件创建者也不会自动视为作品作者。如果保存
+后记后又修改了正式译文，导出会要求重新生成后记，或在本次导出使用
+`assemble --no-afterword` 省略它。

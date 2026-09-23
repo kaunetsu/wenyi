@@ -296,6 +296,10 @@ uv run wenyi translate movie.srt
 uv run wenyi translate book.epub --polish --review
 uv run wenyi translate book.epub --no-polish --no-review
 
+# Generate a critically revised translator's afterword, or omit a saved one during export
+uv run wenyi translate book.epub --afterword
+uv run wenyi assemble book.epub --no-afterword
+
 # Produce both editions, or only the bilingual edition
 uv run wenyi translate book.epub --bilingual
 uv run wenyi translate book.epub --no-mono --bilingual
@@ -357,3 +361,16 @@ modifying translated text. `assemble` rebuilds output from existing state withou
 calling the model again. If another terminal is still translating, export uses a
 consistent snapshot of the batches already persisted when the command starts; run
 it again to include batches completed afterward.
+
+With `--afterword`, the complete workflow drafts and then critically revises an optional
+translator's afterword after Review/Autofix. It uses source author metadata, verified
+`pipeline.translator_afterword_context`, the synopsis, representative chapter digests,
+the style brief and selected final terminology. The revision pass removes unsupported
+background claims and generic praise, and requires a specific assessment of at least one
+strength and one limitation. The saved artifact is export-only: it is not a chapter and
+does not enter translation, glossary, Review, Autofix or punctuation normalization.
+The draft survives an interrupted revision, and changed input evidence triggers a new
+draft. EPUB creators explicitly marked as translators or editors are not treated as work
+authors; DOCX and HTML file-creator metadata is not assumed to identify the work's author.
+If the formal translation changes after the afterword was saved, export asks you to
+regenerate it or use `assemble --no-afterword` for that export.

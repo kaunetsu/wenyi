@@ -296,7 +296,10 @@ def test_export_render_uses_enqueued_config_snapshot(pg_storage, pg_pool, monkey
         {
             "language": {"source": "en", "target": "zh"},
             "llm": {"preset": "fake"},
-            "output": {"punctuation_normalize": False},
+            "output": {
+                "punctuation_normalize": False,
+                "include_translator_afterword": False,
+            },
             "pipeline": {"babeldoc_timeout": 123},
         }
     )
@@ -322,6 +325,7 @@ def test_export_render_uses_enqueued_config_snapshot(pg_storage, pg_pool, monkey
     monkeypatch.setattr(writer, "assemble", assemble)
     tasks._export_sync(pid, export_id=export_id, run_id="snapshot-export", fmt="txt")
     assert rendered[0]["punctuation_normalize"] is False
+    assert rendered[0]["include_translator_afterword"] is False
     assert rendered[0]["babeldoc_timeout"] == 123
     assert must(dal.get_job(job_id))["status"] == "done"
     assert _export_row(pg_pool, export_id)[0] == "done"

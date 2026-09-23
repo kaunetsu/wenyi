@@ -370,6 +370,7 @@ def read_docx(path: str, source_lang: str, target_lang: str) -> Document:
         numbering_root = None
 
     book_title = os.path.splitext(os.path.basename(path))[0]
+    author = (docx.core_properties.author or "").strip()
     blocks: list[dict[str, Any]] = []
     table_id = 0
 
@@ -499,4 +500,5 @@ def read_docx(path: str, source_lang: str, target_lang: str) -> Document:
         fmt="docx",
         source_path=os.path.abspath(path),
         chapters=chapters,
+        meta={"document_creators": [author] if author else []},
     )

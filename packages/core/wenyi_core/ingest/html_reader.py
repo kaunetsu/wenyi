@@ -84,6 +84,12 @@ def read_html(
 
     # Store only head contents; the writer creates the enclosing head element during export.
     head_html = soup.head.decode_contents() if soup.head else ""
+    document_creators = [
+        str(tag.get("content") or "").strip()
+        for tag in soup.find_all("meta")
+        if str(tag.get("name") or "").strip().lower() == "author"
+        and str(tag.get("content") or "").strip()
+    ]
 
     body = soup.body if soup.body else soup
 
@@ -176,6 +182,7 @@ def read_html(
         source_path=os.path.abspath(path),
         chapters=chapters,
         meta={
+            "document_creators": list(dict.fromkeys(document_creators)),
             "chapter_tags": list(chapter_tags) if chapter_tags else None,
             "head_html": head_html,
         },

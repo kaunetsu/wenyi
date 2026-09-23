@@ -30,6 +30,7 @@ def register_workflows_commands(app: typer.Typer, context: ContextAccessor) -> N
         pdf_engine: str = "weasyprint",
         polish: bool | None = None,
         review: bool | None = None,
+        afterword: bool | None = None,
         mono: bool | None = None,
         bilingual: bool | None = None,
     ) -> None:
@@ -44,6 +45,7 @@ def register_workflows_commands(app: typer.Typer, context: ContextAccessor) -> N
                 pdf_engine=pdf_engine,
                 polish=polish,
                 review=review,
+                afterword=afterword,
                 mono=mono,
                 bilingual=bilingual,
             )
@@ -61,6 +63,7 @@ def register_workflows_commands(app: typer.Typer, context: ContextAccessor) -> N
         out: str | None = None,
         polish: bool | None = None,
         review: bool | None = None,
+        afterword: bool | None = None,
         mono: bool | None = None,
         bilingual: bool | None = None,
     ) -> None:
@@ -77,6 +80,8 @@ def register_workflows_commands(app: typer.Typer, context: ContextAccessor) -> N
             ignored.append("--polish/--no-polish")
         if review is not None:
             ignored.append("--review/--no-review")
+        if afterword is not None:
+            ignored.append("--afterword/--no-afterword")
         if ignored:
             raise ValueError("SRT translation does not support: " + ", ".join(ignored))
 
@@ -122,6 +127,7 @@ def register_workflows_commands(app: typer.Typer, context: ContextAccessor) -> N
         pdf_engine: str = "weasyprint",
         polish: bool | None = None,
         review: bool | None = None,
+        afterword: bool | None = None,
         mono: bool | None = None,
         bilingual: bool | None = None,
     ) -> None:
@@ -137,6 +143,7 @@ def register_workflows_commands(app: typer.Typer, context: ContextAccessor) -> N
                 out=out,
                 polish=polish,
                 review=review,
+                afterword=afterword,
                 mono=mono,
                 bilingual=bilingual,
             )
@@ -149,6 +156,9 @@ def register_workflows_commands(app: typer.Typer, context: ContextAccessor) -> N
             config.pipeline.polish = polish
         if review is not None:
             config.pipeline.review = review
+        if afterword is not None:
+            config.pipeline.translator_afterword = afterword
+            config.output.include_translator_afterword = afterword
         if mono is not None:
             config.output.mono = mono
         if bilingual is not None:
@@ -161,6 +171,8 @@ def register_workflows_commands(app: typer.Typer, context: ContextAccessor) -> N
                 ignored.append("--out")
             if review is not None:
                 ignored.append("--review/--no-review")
+            if afterword is not None:
+                ignored.append("--afterword/--no-afterword")
             if mono is not None:
                 ignored.append("--mono/--no-mono")
             if bilingual is not None:
@@ -295,6 +307,11 @@ def register_workflows_commands(app: typer.Typer, context: ContextAccessor) -> N
             "--review/--no-review",
             help="Override pipeline.review to enable or disable final whole-book review",
         ),
+        afterword: bool | None = typer.Option(
+            None,
+            "--afterword/--no-afterword",
+            help="Generate, critically revise and include a translator's afterword",
+        ),
         mono: bool | None = typer.Option(
             None,
             "--mono/--no-mono",
@@ -315,6 +332,7 @@ def register_workflows_commands(app: typer.Typer, context: ContextAccessor) -> N
             pdf_engine=pdf_engine,
             polish=polish,
             review=review,
+            afterword=afterword,
             mono=mono,
             bilingual=bilingual,
         )

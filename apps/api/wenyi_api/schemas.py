@@ -193,6 +193,7 @@ class ExportRequest(RequestModel):
     bilingual: bool = False
     order: Literal["target_first", "source_first"] = "target_first"
     about_page: bool = True
+    include_translator_afterword: bool | None = None
     preserve_source_style: bool = False
     punctuation_normalize: bool | None = None
     pdf_engine: Literal["weasyprint", "fpdf2"] = "weasyprint"

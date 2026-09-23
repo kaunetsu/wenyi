@@ -33,7 +33,7 @@ def test_preview_needs_no_keys_or_sdk(tmp_path, monkeypatch):
     result = _invoke(tmp_path, {"llm": {"preset": "deepseek"}}, "list", "--json")
     assert result.exit_code == 0, result.output
     routes = json.loads(result.output)
-    assert len(routes) == 17
+    assert len(routes) == 19
     assert {route["model"] for route in routes.values()} == {"deepseek-flash"}
     assert routes["synopsis.chapter"]["max_output_tokens"] == 4096
     explained = _invoke(

@@ -153,6 +153,9 @@ const en = {
   "export.sourceFirst": "Source first",
   "export.includeAnAboutThisTranslationPage":
     "Include an “About this translation” page",
+  "export.includeTranslatorAfterword":
+    "Include the generated translator's afterword",
+  "export.afterwordSummary": "Translator's afterword: {value}",
   "export.preserveSourceFormattingInBilingualOutput":
     "Preserve source formatting in bilingual output",
   "common.submitting": "Submitting…",
@@ -488,6 +491,13 @@ const en = {
   "providerSettings.operationSpecificModelRoutesTakePrecedenceOver":
     "Model IDs are used by project selections and fallback routes. Configure model parameters in advanced YAML.",
   "settings.bookUnderstanding": "Book understanding",
+  "settings.generateTranslatorAfterword": "Generate translator's afterword",
+  "settings.translatorAfterwordContext":
+    "Author and writing-background evidence",
+  "settings.translatorAfterwordContextPlaceholder":
+    "Add verified author, composition, period, or publication background.",
+  "settings.translatorAfterwordContextHelp":
+    "The model should state background facts only from this material and in-book evidence; leave it empty for a less specific introduction.",
   "settings.polishing": "Polishing",
   "settings.applyAutofixesToTheSavedTranslation":
     "Apply autofixes to the saved translation after review",

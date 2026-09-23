@@ -140,6 +140,8 @@ DeepSeek 的 `reasoning_effort` 可设为 `low`、`high` 或 `max`；`thinking: 
 | `translation.body` | `strong` | 正文翻译及段落对齐恢复 |
 | `translation.title` | `strong` | 章节与目录标题 |
 | `polish.body` | `strong` | 译文润色 |
+| `afterword.draft` | `strong` | 基于证据起草译者后记 |
+| `afterword.revise` | `afterword.draft` | 对后记做事实与批评性修订 |
 | `glossary.extract` | `fast` | 术语抽取 |
 | `glossary.align_history` | `fast` | 历史译法对齐 |
 | `annotation.align` | `cheap` | 注释定位；动态输出提示 |
@@ -221,6 +223,8 @@ pipeline:
   polish: true
   rolling_context_segments: 6
   book_understanding: true
+  translator_afterword: false
+  translator_afterword_context: ""
   prescan_concurrency: 4
   annotation_alignment: true
   annotation_alignment_concurrency: 4
@@ -243,6 +247,8 @@ pipeline:
 - `polish`：翻译后再调用强模型润色，质量可能提升，但显著增加耗时和成本。
 - `rolling_context_segments`：每批翻译附带的前文译文段数。翻译与润色还会内置附带同章下一条原文片段作为只读参考，此值为零时也保留后文参考；它不改变输出段数，也不写入滚动译文上下文。详见[全书理解与上下文](pipeline.md#全书理解与上下文)。
 - `book_understanding`：预扫全书，生成章节梗概和全书概览。
+- `translator_afterword`：在最终 Review/Autofix 之后，用强模型先起草、再批判性修订译者后记。模型会得到全书梗概、章节摘要、有限的原译文样段、风格说明和术语。后记先介绍作者和有证据支持的创作背景，再回到作品，具体评价其长处、局限及有依据的翻译选择。草稿保存为 `translator-afterword-draft.json`，修订失败后可直接续跑，不必重新起草。定稿保存在 `translator-afterword.json`；仅当正式译文、实际提供的证据、源语和目标语、提示词及模型路由均未变化时复用。
+- `translator_afterword_context`：可选的、已经核实的作者生平、创作和出版背景。两遍提示词都禁止编造没有依据的背景事实；源书元数据和本字段较少时，后记会缩短背景介绍并把重点转回作品。
 - `prescan_concurrency`：预扫章节梗概的并发数。
 - `annotation_alignment`：默认开启。EPUB 中存在脚注、尾注等内部链接时，每个含注释的逻辑段在翻译和润色后立即针对正式译文串行调用一次模型定位。开启导出标点规范化时，导出层会在规范化内存副本的同时重映射已保存的偏移。超长续段会先重新合并，不含注释的段落不会调用模型。关闭后，译文侧仍保留链接但退化为段末可点击标记；未翻译原文及双语版原文侧保留源 EPUB 中的原始位置。该选项只控制链接定位；已经解析出的原语言注释正文始终会自动提供给对应翻译段落。
 - `annotation_alignment_concurrency`：当一个逻辑段内注释数超过一条时，不再用一次模型调用要求同时摆对所有标记（一条出错就会连累整段全部标记回退），而是给每条注释单独发起一次并发请求；该项限制同一段内这些逐条请求可同时并发的上限。
@@ -261,7 +267,8 @@ pipeline:
 - `babeldoc_timeout`：bridge extract / fillback 的 HTTP 超时秒数。
 - `babeldoc_pages`：可选的 1-based 页码，如 `"15"` 或 `"6-8"`；省略则处理全书。
 
-`translate` 命令的 `--polish`、`--no-polish`、`--review`、`--no-review`
+`translate` 命令的 `--polish`、`--no-polish`、`--review`、`--no-review`、
+`--afterword`、`--no-afterword`
 会覆盖对应配置。
 
 可使用 `wenyi review INPUT` 独立执行最终审校。每次调用都会从头审查完整
@@ -279,6 +286,7 @@ output:
   bilingual: false
   bilingual_order: target_first
   bilingual_preserve_source_style: false
+  include_translator_afterword: true
   about_page: true
   punctuation_normalize: true
 ```
@@ -287,6 +295,7 @@ output:
 - `bilingual`：请求原文与译文对照版，文件名为 `<书名>.<目标语言>-bi.<扩展名>`，使用与单语输出相同的选定格式。
 - `bilingual_order`：`target_first` 表示译文在上，`source_first` 表示原文在上。
 - `bilingual_preserve_source_style`：设为 `true` 时，原文继承书籍正文样式，不使用灰色淡化背景；仅影响 EPUB 和 HTML。
+- `include_translator_afterword`：在单语版和双语版正文之后、About 页之前各附加一次已保存的译者后记。如果正式译文在生成后发生变化，导出会要求重新生成后记，或用 `assemble --no-afterword` 省略；省略不会删除产物或调用模型。BabelDOC PDF 暂不支持追加后记页，会明确报错而不是静默遗漏。
 - `about_page`：在书籍末尾附加“关于此翻译”项目说明页；设为 `false` 可关闭。
 - `punctuation_normalize`：仅对简体中文目标的内存导出副本规范标点；繁体中文及其它目标语言跳过此机械转换。正式章节 `target`、Review 输入和续跑状态均保持不变。
 

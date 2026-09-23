@@ -11,6 +11,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from ..agents.afterword import AfterwordWriter
 from ..agents.analyzer import Analyzer
 from ..agents.annotation_aligner import AnnotationAligner
 from ..agents.polisher import Polisher
@@ -44,6 +45,7 @@ class PipelineRuntime:
         self._timer: RunTimer | None = None
         # Client usage is cumulative in-process; checkpoints isolate newly accrued usage at each flush.
         self._usage_checkpoint = self.client.usage_summary()
+        self.afterword_writer = AfterwordWriter(self.client, config)
         self.analyzer = Analyzer(self.client, config)
         self.synopsizer = Synopsizer(self.client, config)
         self.translator = Translator(self.client, config)
@@ -157,6 +159,7 @@ class PipelineRuntime:
         self.config.source_lang = source
         self.config.target_lang = target
         for ag in (
+            self.afterword_writer,
             self.analyzer,
             self.synopsizer,
             self.translator,

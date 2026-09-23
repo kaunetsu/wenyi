@@ -96,6 +96,7 @@ class AssemblyService:
                     pdf_engine=pdf_engine,
                     babeldoc_timeout=self._runtime.config.pipeline.babeldoc_timeout,
                     punctuation_normalize=self._runtime.export_punctuation_enabled(),
+                    include_translator_afterword=out_cfg.include_translator_afterword,
                 )
             )
         if do_bilingual:
@@ -113,6 +114,7 @@ class AssemblyService:
                     pdf_engine=pdf_engine,
                     babeldoc_timeout=self._runtime.config.pipeline.babeldoc_timeout,
                     punctuation_normalize=self._runtime.export_punctuation_enabled(),
+                    include_translator_afterword=out_cfg.include_translator_afterword,
                 )
             )
         return outputs

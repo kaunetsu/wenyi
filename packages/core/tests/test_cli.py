@@ -87,6 +87,7 @@ class TestCliConfig(unittest.TestCase):
                 self.client = FakeClient()
                 captured["polish"] = config.pipeline.polish
                 captured["review"] = config.pipeline.review
+                captured["afterword"] = config.pipeline.translator_afterword
 
             def run_all(self, input_path, **kwargs):
                 captured["run_all"] = kwargs
@@ -112,6 +113,7 @@ class TestCliConfig(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertTrue(captured["polish"])
         self.assertTrue(captured["review"])
+        self.assertFalse(captured["afterword"])
 
     def test_translate_flags_override_config_switches(self):
         cfg = Config.from_dict(
@@ -130,6 +132,8 @@ class TestCliConfig(unittest.TestCase):
                 self.client = FakeClient()
                 captured["polish"] = config.pipeline.polish
                 captured["review"] = config.pipeline.review
+                captured["afterword"] = config.pipeline.translator_afterword
+                captured["include_afterword"] = config.output.include_translator_afterword
 
             def run_all(self, input_path, **kwargs):
                 captured["run_all"] = kwargs
@@ -157,12 +161,15 @@ class TestCliConfig(unittest.TestCase):
                     "input.txt",
                     "--no-polish",
                     "--review",
+                    "--afterword",
                 ],
             )
 
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertFalse(captured["polish"])
         self.assertTrue(captured["review"])
+        self.assertTrue(captured["afterword"])
+        self.assertTrue(captured["include_afterword"])
 
     def test_prepare_stops_before_translation(self):
         cfg = Config.from_dict(

@@ -1,6 +1,6 @@
 import { useI18n } from "@/i18n";
 import { Disclosure } from "@/components/ui/disclosure";
-import { Input, Label, Select } from "@/components/ui/form";
+import { Input, Label, Select, Textarea } from "@/components/ui/form";
 
 const section = (config: Record<string, unknown>, key: string) =>
   (config[key] || {}) as Record<string, unknown>;
@@ -26,6 +26,7 @@ export function WorkflowSettings({
     ["polish", tr("settings.polishing")],
     ["review", tr("common.wholeBookReview")],
     ["review_autofix", tr("settings.applyAutofixesToTheSavedTranslation")],
+    ["translator_afterword", tr("settings.generateTranslatorAfterword")],
   ];
 
   return (
@@ -42,6 +43,32 @@ export function WorkflowSettings({
               {label}
             </label>
           ))}
+        </div>
+      )}
+      {!subtitles && Boolean(section(config, "pipeline").translator_afterword) && (
+        <div>
+          <Label htmlFor="translator-afterword-context">
+            {tr("settings.translatorAfterwordContext")}
+          </Label>
+          <Textarea
+            id="translator-afterword-context"
+            maxLength={20000}
+            value={String(
+              section(config, "pipeline").translator_afterword_context || "",
+            )}
+            onChange={(e) =>
+              onField(
+                "pipeline",
+                "translator_afterword_context",
+                e.target.value,
+              )
+            }
+            placeholder={tr("settings.translatorAfterwordContextPlaceholder")}
+            className="mt-2 min-h-32"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            {tr("settings.translatorAfterwordContextHelp")}
+          </p>
         </div>
       )}
       {subtitles && (

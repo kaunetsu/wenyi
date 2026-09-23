@@ -5,7 +5,9 @@ or bilingual text according to bilingual and order.
 
 from __future__ import annotations
 
+from ..afterword import TranslatorAfterword
 from ..ingest.models import KIND_HEADING
+from .afterword import afterword_text
 from .export_view import AssembleStore
 from .writer_common import _bilingual_source, _merged_paragraphs, _ordered_pair
 
@@ -17,6 +19,7 @@ def _assemble_plain_text(
     bilingual: bool = False,
     order: str = "target_first",
     markdown: bool = False,
+    translator_afterword: TranslatorAfterword | None = None,
 ) -> str:
     """Shared text/Markdown implementation; prefix headings with # when markdown=True."""
     m = store.load_manifest()
@@ -40,6 +43,8 @@ def _assemble_plain_text(
                 first, second = _ordered_pair(src, target, order)
                 blocks.extend((first, second))
         chapter_blocks.append("\n\n".join(blocks))
+    if translator_afterword is not None:
+        chapter_blocks.append(afterword_text(translator_afterword, markdown=markdown))
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n\n".join(chapter_blocks) + "\n")
     return out_path
@@ -52,9 +57,16 @@ def _assemble_text(
     *,
     bilingual: bool = False,
     order: str = "target_first",
+    translator_afterword: TranslatorAfterword | None = None,
 ) -> str:
     """Rebuild UTF-8 text by chapter and paragraph, optionally including bilingual source text."""
-    return _assemble_plain_text(store, out_path, bilingual=bilingual, order=order)
+    return _assemble_plain_text(
+        store,
+        out_path,
+        bilingual=bilingual,
+        order=order,
+        translator_afterword=translator_afterword,
+    )
 
 
 # ── markdown ──────────────────────────────────────────────────────────────────
@@ -64,6 +76,14 @@ def _assemble_markdown(
     *,
     bilingual: bool = False,
     order: str = "target_first",
+    translator_afterword: TranslatorAfterword | None = None,
 ) -> str:
     """Rebuild Markdown with # headings and optional bilingual source text."""
-    return _assemble_plain_text(store, out_path, bilingual=bilingual, order=order, markdown=True)
+    return _assemble_plain_text(
+        store,
+        out_path,
+        bilingual=bilingual,
+        order=order,
+        markdown=True,
+        translator_afterword=translator_afterword,
+    )

@@ -17,6 +17,7 @@ from typing import Any
 
 from ..config import Config
 from ..storage.protocol import Storage
+from .afterword import AfterwordService
 from .annotations import AnnotationService
 from .finalization import AssemblyService, ReportService
 from .preparation import PreparationService
@@ -32,7 +33,7 @@ class Orchestrator:
     """Assemble runtime/services and control only step routing and lock scopes."""
 
     # Optional stages and the complete workflow.
-    ALL_STEPS = ("translate", "review", "report", "assemble")
+    ALL_STEPS = ("translate", "review", "afterword", "report", "assemble")
 
     def __init__(
         self, config: Config, client: LLMClient | None = None, storage: Storage | None = None
@@ -46,6 +47,7 @@ class Orchestrator:
         self._translation = TranslationService(self._runtime, self._annotations)
         self._review = ReviewService(self._runtime)
         self._review_autofix = ReviewAutofixService(self._runtime, self._annotations)
+        self._afterword = AfterwordService(self._runtime)
         self._report = ReportService(self._runtime)
         self._assembly = AssemblyService(self._runtime)
 
@@ -282,6 +284,12 @@ class Orchestrator:
                     pdf_engine=pdf_engine,
                     progress=progress,
                 )
+            if steps == {"afterword"}:
+                return self._run_existing_steps(
+                    input_path,
+                    steps,
+                    progress=progress,
+                )
 
             if "translate" in steps:
                 store = self.run(input_path, progress=progress)
@@ -344,6 +352,9 @@ class Orchestrator:
                     review_dir = outcome.run_dir
 
                 self._runtime.flush_usage(store, scope="pipeline")
+                if "afterword" in steps:
+                    self._afterword.generate(store, progress=progress)
+                    self._runtime.flush_usage(store, scope="afterword")
                 if "report" in steps:
                     if glossary is None:  # pragma: no cover - Guaranteed by the needs condition.
                         raise RuntimeError("Report generation requires a glossary")
@@ -396,6 +407,8 @@ class Orchestrator:
         steps = {"translate", "report", "assemble"}
         if self.config.pipeline.review:
             steps.add("review")
+        if self.config.pipeline.translator_afterword:
+            steps.add("afterword")
         return self.run_steps(
             input_path,
             steps,

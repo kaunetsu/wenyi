@@ -152,11 +152,23 @@ test("autofix defaults on in project settings and review sends no temporary over
   await page
     .getByLabel("Apply autofixes to the saved translation after review")
     .uncheck();
+  await page.getByLabel("Generate translator's afterword").check();
+  await page
+    .getByLabel("Author and writing-background evidence")
+    .fill("Verified publication context.");
   await page
     .getByRole("button", { name: "Save configuration", exact: true })
     .click();
   await expect.poll(() => saved.pipeline.review_autofix).toBe(false);
+  await expect.poll(() => saved.pipeline).toMatchObject({
+    translator_afterword: true,
+    translator_afterword_context: "Verified publication context.",
+  });
   await page.reload();
+  await expect(page.getByLabel("Generate translator's afterword")).toBeChecked();
+  await expect(page.getByLabel("Author and writing-background evidence")).toHaveValue(
+    "Verified publication context.",
+  );
   await expect(
     page.getByLabel("Apply autofixes to the saved translation after review"),
   ).not.toBeChecked();

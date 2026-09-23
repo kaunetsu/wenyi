@@ -60,6 +60,12 @@ STEP_REGISTRY = [
         "category": "post_process",
         "depends_on": ["review"],
     },
+    {
+        "id": "translator_afterword",
+        "name": "译者后记",
+        "category": "post_process",
+        "depends_on": ["batch_translate"],
+    },
     {"id": "punctuation_normalize", "name": "导出标点规范化", "category": "export"},
     {
         "id": "report",
@@ -69,14 +75,26 @@ STEP_REGISTRY = [
         "locked": True,
     },
 ]
-_SWITCHES = {"book_understanding", "polish", "annotation_alignment", "review", "review_autofix"}
-_STANDARD = {**dict.fromkeys(sorted(_SWITCHES), True), "punctuation_normalize": True}
+_SWITCHES = {
+    "book_understanding",
+    "polish",
+    "annotation_alignment",
+    "review",
+    "review_autofix",
+    "translator_afterword",
+}
+_STANDARD = {
+    **dict.fromkeys(sorted(_SWITCHES), True),
+    "translator_afterword": False,
+    "punctuation_normalize": True,
+}
 _QUICK = {
     **_STANDARD,
     "book_understanding": False,
     "polish": False,
     "review": False,
     "review_autofix": False,
+    "translator_afterword": False,
 }
 PRESET_TEMPLATES = [
     {

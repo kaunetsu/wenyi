@@ -1,0 +1,23 @@
+Book title:
+$book_title
+
+Authors from source metadata:
+$authors
+
+Verified author and writing-background context supplied by the user:
+$verified_context
+
+Book synopsis:
+$book_synopsis
+
+Representative chapter digests:
+$chapter_digests
+
+Representative source and final translation passages:
+$representative_passages
+
+Style and character brief:
+$style_brief
+
+Selected final terminology:
+$glossary

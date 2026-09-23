@@ -208,8 +208,9 @@ def read_fb2(path: str, source_lang: str, target_lang: str) -> Document:
             cover_image = _image_id(image)
         break
 
-    # Book title.
+    # Book title and author metadata.
     title = os.path.splitext(os.path.basename(path))[0]
+    authors: list[str] = []
     for desc in root.iter():
         if _local(desc) != "title-info":
             continue
@@ -217,7 +218,17 @@ def read_fb2(path: str, source_lang: str, target_lang: str) -> Document:
             if _local(child) == "book-title":
                 if child.text:
                     title = child.text.strip()
-                break
+            elif _local(child) == "author":
+                parts = [
+                    _strip_markup(part).strip()
+                    for part in child
+                    if _local(part) in {"first-name", "middle-name", "last-name", "nickname"}
+                    and _strip_markup(part).strip()
+                ]
+                author = " ".join(parts).strip()
+                if author and author not in authors:
+                    authors.append(author)
+        break
 
     # Chapters.
     chapters: list[Chapter] = []
@@ -257,7 +268,7 @@ def read_fb2(path: str, source_lang: str, target_lang: str) -> Document:
         if segments:
             chapters.append(Chapter(index=0, title=title, segments=segments))
 
-    meta: dict[str, object] = {}
+    meta: dict[str, object] = {"authors": authors}
     if resources:
         meta["fb2_resources"] = resources
     if cover_image:

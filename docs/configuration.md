@@ -151,6 +151,8 @@ DeepSeek accepts `reasoning_effort: low`, `high`, or `max`; `thinking: false` ex
 | `translation.body` | `strong` | Body translation and alignment recovery |
 | `translation.title` | `strong` | Chapter and TOC titles |
 | `polish.body` | `strong` | Prose polishing |
+| `afterword.draft` | `strong` | Grounded translator-afterword draft |
+| `afterword.revise` | `afterword.draft` | Factual and critical revision of the afterword |
 | `glossary.extract` | `fast` | Glossary extraction |
 | `glossary.align_history` | `fast` | Earlier translation alignment |
 | `annotation.align` | `cheap` | Annotation alignment; dynamic output hint |
@@ -232,6 +234,8 @@ pipeline:
   polish: true
   rolling_context_segments: 6
   book_understanding: true
+  translator_afterword: false
+  translator_afterword_context: ""
   prescan_concurrency: 4
   annotation_alignment: true
   annotation_alignment_concurrency: 4
@@ -254,6 +258,8 @@ pipeline:
 - `polish`: run the strong model over translated batches again for style. This may improve quality but significantly increases runtime and cost.
 - `rolling_context_segments`: number of recent translated segments included with each translation batch. Translation and polishing also receive one following source segment from the same chapter as a read-only reference, including when this setting is zero. This built-in lookahead does not change output counts or saved translation context; see [whole-book context](pipeline.md#whole-book-understanding-and-context).
 - `book_understanding`: prescan the book to create chapter digests and a whole-book synopsis.
+- `translator_afterword`: after final Review/Autofix, make two strong-model calls to draft and critically revise a translator's afterword. The model receives the synopsis, chapter digests, bounded source/translation excerpts, style brief and terms. The result introduces the author and supported writing background, then returns to a specific assessment of the work's strengths, limitations and evidenced translation choices. The draft is checkpointed in `translator-afterword-draft.json`, so a failed revision can resume without redrafting. The final `translator-afterword.json` is reused only while the formal translation, supplied evidence, source/target languages, prompts and routes remain unchanged.
+- `translator_afterword_context`: optional verified author, composition and publication facts supplied to both calls. The prompts forbid unsupported biography or background claims; when this field and source metadata are sparse, the afterword keeps the introduction general and focuses on the work.
 - `prescan_concurrency`: number of chapter-digest requests that may run concurrently.
 - `annotation_alignment`: enabled by default. After each annotated logical paragraph has been fully translated and polished, immediately locate EPUB footnote/endnote links with one sequential model call against the formal target. If export punctuation normalization is enabled, the export layer remaps the persisted offsets together with the normalized in-memory copy. Split continuations are rejoined first, and segments without internal links do not call the model. When disabled, translated links remain clickable but fall back to end-of-paragraph markers; untranslated text and the source side of bilingual output retain the original link positions. This option controls link placement only; resolved source-language note content is supplied to translation automatically.
 - `annotation_alignment_concurrency`: when a paragraph carries more than one annotation, each annotation is aligned through its own independent, concurrently issued request instead of asking one call to place every marker at once (a single mistake used to invalidate the whole paragraph's markers, which is why heavily annotated books tended to fall back to end-of-paragraph placement far more often). This caps how many of those per-annotation requests may run at once for a single paragraph.
@@ -272,7 +278,8 @@ pipeline:
 - `babeldoc_timeout`: HTTP timeout in seconds for bridge extract and fillback.
 - `babeldoc_pages`: optional 1-based page selection such as `"15"` or `"6-8"`; omit it to process the whole file.
 
-The command-line flags `--polish`, `--no-polish`, `--review`, and `--no-review`
+The command-line flags `--polish`, `--no-polish`, `--review`, `--no-review`,
+`--afterword`, and `--no-afterword`
 override the corresponding configuration values for a `translate` run.
 
 Run final review independently with `wenyi review INPUT`. Each invocation
@@ -293,6 +300,7 @@ output:
   bilingual: false
   bilingual_order: target_first
   bilingual_preserve_source_style: false
+  include_translator_afterword: true
   about_page: true
   punctuation_normalize: true
 ```
@@ -301,6 +309,7 @@ output:
 - `bilingual`: request a source-and-translation edition as `<book-name>.<target-language>-bi.<extension>`, using the same selected format as monolingual output.
 - `bilingual_order`: `target_first` places the translation before the source; `source_first` reverses the order.
 - `bilingual_preserve_source_style`: when `true`, source blocks inherit the book's normal text style instead of using the subdued gray style. This affects EPUB and HTML output only.
+- `include_translator_afterword`: include a saved afterword once at the end of monolingual and bilingual editions, before the About page. If the formal translation has changed since generation, export fails until the afterword is regenerated or omitted with `assemble --no-afterword`; omission does not delete the artifact or make a model call. BabelDOC PDF output does not yet support appending the page and reports an error instead of silently dropping it.
 - `about_page`: append an “About this translation” project page to the book; set it to `false` to disable it.
 - `punctuation_normalize`: normalize punctuation only on the in-memory export copy for Simplified Chinese targets. Traditional Chinese and other targets skip this deterministic conversion. Formal chapter `target` values, Review input, and resume state remain unchanged.
 

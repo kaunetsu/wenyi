@@ -5,7 +5,8 @@ from __future__ import annotations
 from docx import Document as open_docx
 from docx.oxml.ns import qn
 
-from wenyi_core.assemble.docx_blocks import _add_heading, _emit_chapter_blocks
+from wenyi_core.afterword import TranslatorAfterword
+from wenyi_core.assemble.docx_blocks import _add_heading, _add_normal, _emit_chapter_blocks
 from wenyi_core.assemble.docx_styles import _target_output_font
 from wenyi_core.assemble.writer_common import (
     _ch_title,
@@ -22,6 +23,7 @@ def _assemble_docx(
     *,
     bilingual: bool = False,
     order: str = "target_first",
+    translator_afterword: TranslatorAfterword | None = None,
 ) -> str:
     """Rebuild a DOCX by chapter, restoring heading outlines, styles and tables from metadata."""
     manifest = store.load_manifest()
@@ -54,6 +56,12 @@ def _assemble_docx(
             output_font=output_font,
         )
         first_block = False
+
+    if translator_afterword is not None:
+        doc.add_page_break()
+        _add_heading(doc, translator_afterword.title, 1, output_font=output_font)
+        for paragraph in translator_afterword.paragraphs:
+            _add_normal(doc, paragraph, output_font=output_font)
 
     body = doc.element.body
     for child in list(body):

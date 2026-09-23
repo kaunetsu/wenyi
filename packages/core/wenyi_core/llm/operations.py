@@ -102,6 +102,20 @@ OPERATIONS = register_operations(
             flags=("polish",),
             protocol_version=2,
         ),
+        OperationSpec(
+            "afterword.draft",
+            "Draft a grounded translator's afterword",
+            "strong",
+            output_tokens=2200,
+            flags=("translator_afterword",),
+        ),
+        OperationSpec(
+            "afterword.revise",
+            "Critically revise a translator's afterword",
+            inherits="afterword.draft",
+            output_tokens=2200,
+            flags=("translator_afterword",),
+        ),
         OperationSpec("glossary.extract", "Extract glossary candidates", "fast"),
         OperationSpec("glossary.align_history", "Align terms with earlier translations", "fast"),
         OperationSpec(

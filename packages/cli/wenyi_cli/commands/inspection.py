@@ -93,6 +93,11 @@ def register_inspection_commands(app: typer.Typer, context: ContextAccessor) -> 
             "--bilingual/--no-bilingual",
             help="Override output.bilingual to enable or disable bilingual output",
         ),
+        afterword: bool | None = typer.Option(
+            None,
+            "--afterword/--no-afterword",
+            help="Include or omit the saved translator's afterword without calling a model",
+        ),
     ):
         """Export translations from existing state without calling a model."""
         console = context().console
@@ -107,6 +112,8 @@ def register_inspection_commands(app: typer.Typer, context: ContextAccessor) -> 
             config.output.mono = mono
         if bilingual is not None:
             config.output.bilingual = bilingual
+        if afterword is not None:
+            config.output.include_translator_afterword = afterword
         try:
             result = Orchestrator(config, client=FakeClient()).run_assemble(
                 input,

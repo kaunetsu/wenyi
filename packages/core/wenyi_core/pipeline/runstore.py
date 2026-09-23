@@ -364,8 +364,11 @@ class RunStore(FileArtifacts):
                 if chapter.index != chapter_index:
                     raise ValueError(f"Chapter file index mismatch: {chapter_index}")
                 chapters[chapter_index] = chapter
+            artifacts = {
+                "translator-afterword.json": self.read_artifact("translator-afterword.json")
+            }
 
-        return ExportSnapshotStore(self.run_dir, manifest, chapters)
+        return ExportSnapshotStore(self.run_dir, manifest, chapters, artifacts)
 
     def save_manifest(self, manifest: dict) -> None:
         """Save the manifest and chapter status atomically."""
@@ -589,12 +592,14 @@ class ExportSnapshotStore(RunStore):
         run_dir: str,
         manifest: dict,
         chapters: dict[int, Chapter],
+        artifacts: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(run_dir, create=False)
         self._snapshot_manifest = deepcopy(manifest)
         self._snapshot_chapters = {
             index: chapter.model_copy(deep=True) for index, chapter in chapters.items()
         }
+        self._snapshot_artifacts = deepcopy(artifacts or {})
 
     def load_manifest(self) -> dict:
         """Return an independent copy of the frozen manifest."""
@@ -607,3 +612,7 @@ class ExportSnapshotStore(RunStore):
         except KeyError as error:
             raise FileNotFoundError(f"Chapter not found in snapshot: {ci}") from error
         return chapter.model_copy(deep=True)
+
+    def read_artifact(self, key: str) -> Any | None:
+        """Return only artifacts captured with the export snapshot."""
+        return deepcopy(self._snapshot_artifacts.get(key))

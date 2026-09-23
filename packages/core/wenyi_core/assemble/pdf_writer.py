@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 from bs4 import BeautifulSoup
 from bs4.element import Comment, Tag
 
+from ..afterword import TranslatorAfterword
 from .export_view import AssembleStore
 from .html_writer import _assemble_html
 
@@ -55,6 +56,7 @@ def _assemble_pdf_weasyprint(
     bilingual: bool = False,
     order: str = "target_first",
     preserve_source_style: bool = False,
+    translator_afterword: TranslatorAfterword | None = None,
 ) -> str:
     """Render a print-specific HTML export to PDF with WeasyPrint."""
     if sys.platform == "darwin":
@@ -84,6 +86,7 @@ def _assemble_pdf_weasyprint(
             bilingual=bilingual,
             order=order,
             preserve_source_style=preserve_source_style,
+            translator_afterword=translator_afterword,
         )
         with open(html_path, encoding="utf-8") as file:
             soup = BeautifulSoup(file.read(), "html.parser")
@@ -285,6 +288,7 @@ def _assemble_pdf_fpdf2(
     bilingual: bool = False,
     order: str = "target_first",
     preserve_source_style: bool = False,
+    translator_afterword: TranslatorAfterword | None = None,
 ) -> str:
     """Render normalized book HTML with fpdf2 and no system rendering libraries."""
     try:
@@ -314,6 +318,7 @@ def _assemble_pdf_fpdf2(
             bilingual=bilingual,
             order=order,
             preserve_source_style=preserve_source_style,
+            translator_afterword=translator_afterword,
         )
         with open(html_path, encoding="utf-8") as file:
             normalized = _normalize_html_for_fpdf(file.read(), base_dir=directory)
@@ -366,12 +371,15 @@ def _assemble_pdf(
     order: str = "target_first",
     preserve_source_style: bool = False,
     babeldoc_timeout: float = 600.0,
+    translator_afterword: TranslatorAfterword | None = None,
 ) -> str:
     """Dispatch PDF output to the selected rendering backend."""
     manifest = store.load_manifest() or {}
     raw_meta = manifest.get("meta")
     meta: dict = raw_meta if isinstance(raw_meta, dict) else {}
     if meta.get("pdf_export") == "babeldoc" or meta.get("babeldoc"):
+        if translator_afterword is not None:
+            raise ValueError("Translator afterword is not yet supported for BabelDOC PDF output")
         return _assemble_pdf_babeldoc(store, out_path, timeout=babeldoc_timeout)
     if engine == "weasyprint":
         return _assemble_pdf_weasyprint(
@@ -381,6 +389,7 @@ def _assemble_pdf(
             bilingual=bilingual,
             order=order,
             preserve_source_style=preserve_source_style,
+            translator_afterword=translator_afterword,
         )
     if engine == "fpdf2":
         return _assemble_pdf_fpdf2(
@@ -390,5 +399,6 @@ def _assemble_pdf(
             bilingual=bilingual,
             order=order,
             preserve_source_style=preserve_source_style,
+            translator_afterword=translator_afterword,
         )
     raise ValueError("Unsupported PDF engine: " + engine + " (choose weasyprint / fpdf2)")

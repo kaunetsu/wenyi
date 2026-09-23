@@ -44,7 +44,12 @@ class TestConfigFileCreation(unittest.TestCase):
             self.assertEqual(cfg.output.bilingual_order, "target_first")
             self.assertFalse(cfg.output.bilingual_preserve_source_style)
             self.assertTrue(cfg.output.about_page)
+            self.assertTrue(cfg.output.include_translator_afterword)
             self.assertTrue(cfg.output.punctuation_normalize)
+            self.assertFalse(cfg.pipeline.translator_afterword)
+            self.assertEqual(cfg.pipeline.translator_afterword_context, "")
+            self.assertIn("  translator_afterword: false", generated)
+            self.assertIn("  include_translator_afterword: true", generated)
             self.assertIn("  punctuation_normalize: true", generated)
             self.assertNotIn("\npunctuation:\n", generated)
             self.assertTrue(cfg.pipeline.review)
@@ -107,6 +112,21 @@ class TestConfigFileCreation(unittest.TestCase):
         cfg = Config.from_dict({"output": {"about_page": False}})
 
         self.assertFalse(cfg.output.about_page)
+
+    def test_translator_afterword_settings_are_typed(self):
+        cfg = Config.from_dict(
+            {
+                "pipeline": {
+                    "translator_afterword": True,
+                    "translator_afterword_context": "Verified background",
+                },
+                "output": {"include_translator_afterword": False},
+            }
+        )
+
+        self.assertTrue(cfg.pipeline.translator_afterword)
+        self.assertEqual(cfg.pipeline.translator_afterword_context, "Verified background")
+        self.assertFalse(cfg.output.include_translator_afterword)
 
     def test_export_punctuation_normalization_can_be_disabled(self):
         cfg = Config.from_dict({"output": {"punctuation_normalize": False}})

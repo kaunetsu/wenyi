@@ -11,6 +11,7 @@ from wenyi_core.ingest.epub_package import (
     _find_opf_path,
     _manifest_xhtml_hrefs,
     _parse_opf,
+    _parse_opf_authors,
 )
 from wenyi_core.ingest.epub_toc import parse_toc_entries
 from wenyi_core.ingest.models import Document
@@ -37,6 +38,7 @@ def read_epub(path: str, source_lang: str, target_lang: str) -> Document:
         names = set(zf.namelist())
         opf_path = _find_opf_path(zf)
         book_title, hrefs, toc_paths = _parse_opf(zf, opf_path)
+        authors = _parse_opf_authors(zf, opf_path)
         manifest_xhtml_hrefs = _manifest_xhtml_hrefs(zf, opf_path)
         toc_entries = parse_toc_entries(zf, toc_paths)
 
@@ -107,6 +109,7 @@ def read_epub(path: str, source_lang: str, target_lang: str) -> Document:
         chapters=chapters,
         meta={
             "epub_schema": 5,
+            "authors": authors,
             "opf_path": opf_path,
             "toc_paths": toc_paths,
             "toc_entries": toc_entries,

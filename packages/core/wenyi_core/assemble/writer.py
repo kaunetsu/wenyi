@@ -6,7 +6,9 @@ epub_writer.
 
 from __future__ import annotations
 
+from ..afterword import load_translator_afterword
 from .about import append_about_page
+from .afterword import append_afterword_page
 from .docx_writer import _assemble_docx
 from .epub_writer import (
     _assemble_epub,
@@ -42,6 +44,7 @@ def assemble(
     pdf_engine: str = "weasyprint",
     babeldoc_timeout: float = 600.0,
     punctuation_normalize: bool = False,
+    include_translator_afterword: bool = True,
 ) -> str:
     """Generate translated output, defaulting to PDF for BabelDOC state and EPUB otherwise.
     EPUB input reuses the original layout and resources; template-free input produces a
@@ -62,6 +65,10 @@ def assemble(
     else:
         view = ExportViewStore(store, punctuation_normalize=punctuation_normalize)
     m = view.load_manifest()
+    formal_store = store.formal_store if isinstance(store, ExportViewStore) else store
+    translator_afterword = (
+        load_translator_afterword(formal_store) if include_translator_afterword else None
+    )
     if out_format is None:
         out_format = default_output_format(m)
     target_lang = _manifest_target_lang(m)
@@ -70,7 +77,13 @@ def assemble(
             source_path, "txt", "", bilingual=bilingual, target_lang=target_lang
         )
         _ensure_parent_dir(out_path)
-        return _assemble_text(view, out_path, bilingual=bilingual, order=order)
+        return _assemble_text(
+            view,
+            out_path,
+            bilingual=bilingual,
+            order=order,
+            translator_afterword=translator_afterword,
+        )
     if out_format == "html":
         out_path = out_path or _default_out(
             source_path, "html", "", bilingual=bilingual, target_lang=target_lang
@@ -83,13 +96,20 @@ def assemble(
             bilingual=bilingual,
             order=order,
             preserve_source_style=preserve_source_style,
+            translator_afterword=translator_afterword,
         )
     if out_format == "markdown":
         out_path = out_path or _default_out(
             source_path, "markdown", "", bilingual=bilingual, target_lang=target_lang
         )
         _ensure_parent_dir(out_path)
-        return _assemble_markdown(view, out_path, bilingual=bilingual, order=order)
+        return _assemble_markdown(
+            view,
+            out_path,
+            bilingual=bilingual,
+            order=order,
+            translator_afterword=translator_afterword,
+        )
     if out_format == "pdf":
         out_path = out_path or _default_out(
             source_path, "pdf", "", bilingual=bilingual, target_lang=target_lang
@@ -104,13 +124,20 @@ def assemble(
             order=order,
             preserve_source_style=preserve_source_style,
             babeldoc_timeout=babeldoc_timeout,
+            translator_afterword=translator_afterword,
         )
     if out_format == "docx":
         out_path = out_path or _default_out(
             source_path, "docx", "", bilingual=bilingual, target_lang=target_lang
         )
         _ensure_parent_dir(out_path)
-        return _assemble_docx(view, out_path, bilingual=bilingual, order=order)
+        return _assemble_docx(
+            view,
+            out_path,
+            bilingual=bilingual,
+            order=order,
+            translator_afterword=translator_afterword,
+        )
     out_path = out_path or _default_out(
         source_path, "epub", "", bilingual=bilingual, target_lang=target_lang
     )
@@ -143,6 +170,10 @@ def assemble(
             order=order,
             preserve_source_style=preserve_source_style,
         )
+    if translator_afterword and not append_afterword_page(
+        result, translator_afterword, _epub_lang(target_lang)
+    ):
+        raise ValueError("Cannot attach the translator's afterword to this EPUB")
     if about_page:
         append_about_page(result, _epub_lang(target_lang))
     return result

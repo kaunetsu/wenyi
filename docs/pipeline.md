@@ -29,8 +29,9 @@ flowchart TD
     N -- No or stopped --> P[Save Review issues<br/>and folded changes]
     P --> Q{Autofix enabled?}
     Q -- Yes --> R[Overlay changes; reuse Agent Loop and Fixer<br/>Publish final segment targets]
-    Q -- No --> X[Optionally normalize punctuation<br/>on the export-only copy]
-    R --> X
+    Q -- No --> AW[Optional translator's afterword<br/>Draft and critical revision]
+    R --> AW
+    AW --> X[Optionally normalize punctuation<br/>on the export-only copy]
     X --> M[Generate the report and assemble the selected output]
 ```
 
@@ -76,6 +77,7 @@ The glossary constrains later translation and supplies evidence to the final rev
 - **Cross-chunk arbitration:** after all concurrent chunks finish, contradictory consistency proposals for the same term, pronoun, or fixed expression can be sent through a final arbiter. The final suggestion set conservatively rewrites every losing proposal to the winning value; every superseded proposal remains available in the round traces. It never changes the glossary or translated text.
 - **Shadow Fix and blind re-review:** confirmed issues for the same segment are grouped into one Fixer request. The Fixer receives the style brief, book synopsis, chapter digest, relevant glossary subset, and nearby source/translation pairs, and must return one complete replacement segment rather than a diff. All Fixers in a round read one immutable shadow snapshot; their patches are applied together only after the round finishes. The next whole-book Review and evidence index read the updated shadow text without receiving the old issue explanations. Unresolved arbitration conflicts and unverified Agent fallbacks are left unresolved. The loop stops after consecutive clean passes, the configured Fix limit, no progress, or an A→B→A cycle.
 - **Optional Autofix publishing:** the Review engine itself remains read-only. When `review_autofix` is enabled, a separate publisher first overlays the folded `changes`, then sends final unresolved issues through the existing Review Agent Loop against that updated translation. Confirmed issues reuse the existing Fixer; no Autofix-specific loop or prompt exists. The publisher writes only final complete segments to formal `target` values, then refreshes annotation and DOCX style offsets.
+- **Optional translator's afterword:** after Review/Autofix has established the formal translation, one strong-model call drafts an evidence-grounded afterword and a second call fact-checks and critically revises it. The prose introduces the author and supplied writing background, then returns to a specific view of the work's strengths and limitations. Its fingerprint covers formal text, prompts, routes, glossary, analysis and verified context. The saved artifact is export-only and never becomes a chapter or Review input.
 Final review is the sole model-driven semantic review stage and is enabled by
 default. Setting `pipeline.review: false` or passing `--no-review` skips it in the
 one-command workflow. Review is also available as an independent stage:

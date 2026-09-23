@@ -82,6 +82,15 @@ class ExportViewStore(RunStore):
     def load_manifest(self) -> dict:
         return self._store.load_manifest()
 
+    @property
+    def formal_store(self) -> Storage | ExportSnapshotStore:
+        """Read the unnormalized formal chapters captured for this export."""
+        return self._store
+
+    def read_artifact(self, key: str) -> Any | None:
+        """Read the artifact captured by an export snapshot when one is in use."""
+        return self._store.read_artifact(key)
+
     def load_chapter(self, ci: int) -> Chapter:
         chapter = self._store.load_chapter(ci)
         if not self._punctuation_normalize:

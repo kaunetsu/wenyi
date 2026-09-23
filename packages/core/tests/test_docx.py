@@ -63,8 +63,13 @@ class TestDocxReader(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "sample.docx")
             _write_sample_docx(path)
+            source = DocxDocument(path)
+            source.core_properties.author = "Test Author"
+            source.save(path)
             book = read_docx(path, "en", "zh")
         self.assertEqual(book.fmt, "docx")
+        self.assertEqual(book.meta["document_creators"], ["Test Author"])
+        self.assertNotIn("authors", book.meta)
         self.assertEqual(len(book.chapters), 1)
         self.assertEqual(book.chapters[0].title, "Chapter One")
         kinds = [s.kind for s in book.chapters[0].segments]
